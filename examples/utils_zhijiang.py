@@ -24,6 +24,7 @@ import sys
 import pandas as pd
 from io import open
 
+from collections import OrderedDict
 from scipy.stats import pearsonr, spearmanr
 from sklearn.metrics import matthews_corrcoef, f1_score, classification_report
 
@@ -325,6 +326,14 @@ def get_metrics(data_dir='/data/share/zhanghaipeng/data/zhijiang/', gold_result_
     f1_score = 2 * precision * recall / (precision+recall)
     print('precision:{},recall:{},f1_score:{}'.format(precision,recall,f1_score))
 
+def get_labels(data_dir='/data/share/zhanghaipeng/data/zhijiang/', train_review_file='TRAIN/TrainingData.csv', train_result_file='TRAIN/Result.csv', train_label_file='TRAIN/Label.csv'):
+    review = pd.read_csv(data_dir+train_review_file,sep='\t')
+    result = pd.read_csv(data_dir+train_result_file,sep='\t')
+    ids = OrderedDict(review['ID']).values()
+    for id_ in ids:
+        id_review = review[review['ID']==id_]
+        id_result = result[result['ID']==id_]
+    writer = open(data_dir+train_label_file,'w')
+    writer.close()
 if __name__ == '__main__':
-    #data_desc()
-    get_metrics()
+    get_labels()
