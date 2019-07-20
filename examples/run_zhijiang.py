@@ -40,7 +40,7 @@ from pytorch_transformers import (WEIGHTS_NAME, BertConfig,
                                   BertForTokenClassification)
 
 from pytorch_transformers import AdamW, WarmupLinearSchedule
-from utils_tianchi import (compute_metrics, convert_examples_to_features,
+from utils_zhijiang import (compute_metrics, convert_examples_to_features,
                         output_modes, processors)
 
 logger = logging.getLogger(__name__)
@@ -219,7 +219,7 @@ def evaluate(args, model, tokenizer, prefix=""):
 
         eval_loss = eval_loss / nb_eval_steps
         if args.output_mode == "classification":
-            preds = np.argmax(preds, axis=1)
+            preds = np.argmax(preds, axis=2)
         elif args.output_mode == "regression":
             preds = np.squeeze(preds)
         result = compute_metrics(eval_task, preds, out_label_ids)
@@ -427,7 +427,6 @@ def main():
         global_step, tr_loss = train(args, train_dataset, model, tokenizer)
         logger.info(" global_step = %s, average loss = %s", global_step, tr_loss)
 
-    import pdb;pdb.set_trace()
     # Saving best-practices: if you use defaults names for the model, you can reload it using from_pretrained()
     if args.do_train and (args.local_rank == -1 or torch.distributed.get_rank() == 0):
         # Create output directory if needed
