@@ -94,20 +94,18 @@ class ZhiJiangProcessor(DataProcessor):
 
     def get_train_examples(self, data_dir):
         """See base class."""
-        logger.info("LOOKING AT {}".format(os.path.join(data_dir, "train.tsv")))
-        return self._create_examples(
-            self._read_tsv(os.path.join(data_dir, "TRAIN/TrainingData.csv")), self._read_tsv(os.path.join(data_dir, "TRAIN/Label.csv")),"train")
+        logger.info("LOOKING AT {}".format(os.path.join(data_dir, "train.csv")))
+        return self._create_examples(self._read_tsv(os.path.join(data_dir, "TRAIN/Label.csv")),"train")
 
     def get_dev_examples(self, data_dir):
         """See base class."""
-        return self._create_examples(
-            self._read_tsv(os.path.join(data_dir, "TRAIN/TrainingData.csv")), self._read_tsv(os.path.join(data_dir, "TRAIN/Label.csv")),"dev")
+        return self._create_examples(self._read_tsv(os.path.join(data_dir, "TRAIN/Label.csv")),"dev")
 
     def get_labels(self):
         """See base class."""
         label_list = []
         bio_list = ['B','I']
-        cate_list = ['wuliu','daxiao','chicun']
+        cate_list = ['wuliu','chicun']
         opinion_list = ['pos','neu','neg']
         
         label_list.append('[MASK]')
@@ -121,15 +119,15 @@ class ZhiJiangProcessor(DataProcessor):
                 label_list.append(i+'-'+k)
         return label_list
 
-    def _create_examples(self, lines_review, lines_label,set_type):
+    def _create_examples(self, lines_label,set_type):
         """Creates examples for the training and dev sets."""
         examples = []
-        for (i, line) in enumerate(zip(lines_review, lines_label)):
+        for (i, line) in enumerate(lines_label):
             if i == 0:
                 continue
             guid = "%s-%s" % (set_type, i)
-            text_a = line[0][1]
-            label = line[1][1]
+            text_a = line[1]
+            label = line[2]
             examples.append(
                 InputExample(guid=guid, text_a=text_a,label=label))
         return examples
@@ -329,11 +327,45 @@ def get_metrics(data_dir='/data/share/zhanghaipeng/data/zhijiang/', gold_result_
 def get_labels(data_dir='/data/share/zhanghaipeng/data/zhijiang/', train_review_file='TRAIN/TrainingData.csv', train_result_file='TRAIN/Result.csv', train_label_file='TRAIN/Label.csv'):
     review = pd.read_csv(data_dir+train_review_file,sep='\t')
     result = pd.read_csv(data_dir+train_result_file,sep='\t')
+    writer = open(data_dir+train_label_file,'w')
+    writer.write('ID\tReviews\tLabels\n')
+
+    polar_dict = {'正面评价':'pos',
+            '负面评价':'neg',
+            '中性评价':'neu'}
+    cate_dict = {'物流':'wuliu',
+            '尺寸':'chicun'}
     ids = OrderedDict(review['ID']).values()
     for id_ in ids:
         id_review = review[review['ID']==id_]
         id_result = result[result['ID']==id_]
-    writer = open(data_dir+train_label_file,'w')
+        review_ = id_review.iloc[0]['Reviews']
+        label = ['O'] * len(review_)
+        for i in range(id_result.shape[0]):
+            per_result = id_result.iloc[i]
+            aspect_terms = per_result['AspectTerms']
+            opinion_terms = per_result['OpinionTerms']
+            cate = cate_dict[ per_result['Categories'] ]
+            polar = polar_dict[ per_result['Polarities'] ]
+            
+            phrase = aspect_terms + opinion_terms
+            aspect_begin = review_.find(phrase) 
+            aspect_end = aspect_begin + len(aspect_terms)
+            
+            opinion_begin = aspect_end
+            opinion_end = opinion_begin + len(opinion_terms)
+            
+            for j in range(aspect_begin, aspect_end):
+                if j == aspect_begin:
+                    label[j] = 'B-'+cate
+                else:
+                    label[j] = 'I-'+cate
+            for k in range(opinion_begin, opinion_end):
+                if k == opinion_begin:
+                    label[k] = 'B-'+polar
+                else:
+                    label[k] = 'I-'+polar
+        writer.write(str(id_)+'\t'+review_+'\t'+' '.join(label)+'\n')
     writer.close()
 if __name__ == '__main__':
     get_labels()
