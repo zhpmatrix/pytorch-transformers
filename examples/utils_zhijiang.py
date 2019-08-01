@@ -27,6 +27,7 @@ from io import open
 from collections import OrderedDict
 from scipy.stats import pearsonr, spearmanr
 from sklearn.metrics import matthews_corrcoef, f1_score, classification_report
+from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
@@ -95,20 +96,20 @@ class ZhiJiangProcessor(DataProcessor):
     def get_train_examples(self, data_dir):
         """See base class."""
         logger.info("LOOKING AT {}".format(os.path.join(data_dir, "train.csv")))
-        return self._create_examples(self._read_tsv(os.path.join(data_dir, "TRAIN/Label.csv")),"train")
+        return self._create_examples(self._read_tsv(os.path.join(data_dir, "TRAIN/train.csv")),"train")
 
     def get_dev_examples(self, data_dir):
         """See base class."""
-        return self._create_examples(self._read_tsv(os.path.join(data_dir, "TRAIN/Label.csv")),"dev")
+        return self._create_examples(self._read_tsv(os.path.join(data_dir, "TRAIN/test.csv")),"dev")
 
     def get_labels(self):
         """See base class."""
         label_list = []
         bio_list = ['B','I']
-        cate_list = ['wuliu','chicun']
+        cate_list = ['baozhuang','chengfen','chicun','fuwu','gongxiao','jiage','qiwei','shiyongtiyan','wuliu','xinxiandu','zhenwei','zhengti','qita']
         opinion_list = ['pos','neu','neg']
         
-        label_list.append('[MASK]')
+        label_list.append('[PAD]')
         label_list.append('O')
         label_list.append('[CLS]')
         label_list.append('[SEP]')
@@ -150,9 +151,13 @@ def convert_examples_to_features(examples, label_list, max_seq_length,
 
     features = []
     for (ex_index, example) in enumerate(examples):
+        if ex_index == 50:
+            #import pdb;pdb.set_trace()
+            pass
         if ex_index % 10000 == 0:
             logger.info("Writing example %d of %d" % (ex_index, len(examples)))
-        tokens_a = tokenizer.tokenize(example.text_a)
+        #tokens_a = tokenizer.tokenize(example.text_a)
+        tokens_a = [char.lower() for char in example.text_a]
         labels = example.label.split()
 
         tokens_b = None
@@ -223,7 +228,8 @@ def convert_examples_to_features(examples, label_list, max_seq_length,
             input_mask = input_mask + ([0 if mask_padding_with_zero else 1] * padding_length)
             segment_ids = segment_ids + ([pad_token_segment_id] * padding_length)
             label_ids = label_ids + ([pad_token] * padding_length)
-        
+            if len(label_ids)  == 129:
+                import pdb;pdb.set_trace()
         assert len(input_ids) == max_seq_length
         assert len(input_mask) == max_seq_length
         assert len(segment_ids) == max_seq_length
@@ -272,7 +278,9 @@ def simple_accuracy(preds, labels):
 def acc_and_f1(preds, labels):
     labels_list = labels.reshape(-1).tolist()
     preds_list = preds.reshape(-1).tolist()
-    report = classification_report(labels_list, preds_list)
+    label_num = 36
+    labels_ = [i for i in range(label_num)][4:]
+    report = classification_report(labels_list, preds_list, labels=labels_)
     return {
         "report": report
     }
@@ -324,47 +332,56 @@ def get_metrics(data_dir='/data/share/zhanghaipeng/data/zhijiang/', gold_result_
     f1_score = 2 * precision * recall / (precision+recall)
     print('precision:{},recall:{},f1_score:{}'.format(precision,recall,f1_score))
 
-def get_labels(data_dir='/data/share/zhanghaipeng/data/zhijiang/', train_review_file='TRAIN/TrainingData.csv', train_result_file='TRAIN/Result.csv', train_label_file='TRAIN/Label.csv'):
-    review = pd.read_csv(data_dir+train_review_file,sep='\t')
-    result = pd.read_csv(data_dir+train_result_file,sep='\t')
+def get_labels(data_dir='/data/share/zhanghaipeng/data/zhijiang/', train_review_file='TRAIN/train/TRAIN/Train_reviews.csv', train_result_file='TRAIN/train/TRAIN/Train_labels.csv', train_label_file='TRAIN/train/TRAIN/Label.csv'):
+    review = pd.read_csv(data_dir+train_review_file,sep=',')
+    result = pd.read_csv(data_dir+train_result_file,sep=',')
     writer = open(data_dir+train_label_file,'w')
     writer.write('ID\tReviews\tLabels\n')
 
-    polar_dict = {'正面评价':'pos',
-            '负面评价':'neg',
-            '中性评价':'neu'}
-    cate_dict = {'物流':'wuliu',
-            '尺寸':'chicun'}
-    ids = OrderedDict(review['ID']).values()
-    for id_ in ids:
-        id_review = review[review['ID']==id_]
-        id_result = result[result['ID']==id_]
+    polar_dict = {'正面':'pos',
+            '负面':'neg',
+            '中性':'neu'}
+    cate_dict = {'包装':'baozhuang',
+            '成分':'chengfen',
+            '尺寸':'chicun',
+            '服务':'fuwu',
+            '功效':'gongxiao',
+            '价格':'jiage',
+            '气味':'qiwei',
+            '使用体验':'shiyongtiyan' ,
+            '物流':'wuliu',
+            '新鲜度':'xinxiandu',
+            '真伪':'zhenwei',
+            '整体':'zhengti',
+            '其他':'qita'}
+    ids = OrderedDict(review['id']).values()
+    for id_ in tqdm(ids):
+        id_review = review[review['id']==id_]
+        id_result = result[result['id']==id_]
         review_ = id_review.iloc[0]['Reviews']
         label = ['O'] * len(review_)
         for i in range(id_result.shape[0]):
             per_result = id_result.iloc[i]
             aspect_terms = per_result['AspectTerms']
             opinion_terms = per_result['OpinionTerms']
-            cate = cate_dict[ per_result['Categories'] ]
-            polar = polar_dict[ per_result['Polarities'] ]
-            
-            phrase = aspect_terms + opinion_terms
-            aspect_begin = review_.find(phrase) 
-            aspect_end = aspect_begin + len(aspect_terms)
-            
-            opinion_begin = aspect_end
-            opinion_end = opinion_begin + len(opinion_terms)
-            
-            for j in range(aspect_begin, aspect_end):
-                if j == aspect_begin:
-                    label[j] = 'B-'+cate
-                else:
-                    label[j] = 'I-'+cate
-            for k in range(opinion_begin, opinion_end):
-                if k == opinion_begin:
-                    label[k] = 'B-'+polar
-                else:
-                    label[k] = 'I-'+polar
+            cate = cate_dict[ per_result['Categories']]
+            polar = polar_dict[ per_result['Polarities']]
+            if aspect_terms != '_':
+                aspect_begin = int( per_result['A_start'] )
+                aspect_end = int( per_result['A_end'] )
+                for j in range(aspect_begin, aspect_end):
+                    if j == aspect_begin:
+                        label[j] = 'B-'+cate
+                    else:
+                        label[j] = 'I-'+cate
+            if opinion_terms != '_':
+                opinion_begin = int( per_result['O_start'] )
+                opinion_end = int( per_result['O_end'] )
+                for k in range(opinion_begin, opinion_end):
+                    if k == opinion_begin:
+                        label[k] = 'B-'+polar
+                    else:
+                        label[k] = 'I-'+polar
         writer.write(str(id_)+'\t'+review_+'\t'+' '.join(label)+'\n')
     writer.close()
 if __name__ == '__main__':
