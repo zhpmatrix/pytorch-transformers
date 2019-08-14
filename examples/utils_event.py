@@ -66,11 +66,15 @@ def construct_data(data_dir = '/data/share/zhanghaipeng/data/chuangtouribao/even
             for text, cnt in text_dict.items():
                 if cnt > 1:# 相同段落中有多个事件
                     round_bucket, money_bucket, subject_bucket, org_invest_bucket = get_buckets(text, event_list)
-                    examples = get_examples(round_bucket, money_bucket, subject_bucket, org_invest_bucket, text, event_list)
-                                    
+                    real_event, construct_event = get_events(round_bucket, money_bucket, subject_bucket, org_invest_bucket, text, event_list)
+                    examples = get_examples(real_event, construct_event)                            
     writer.close()
 
-def get_examples(round_bucket, money_bucket, subject_bucket, org_invest_bucket, text, event_list):
+def get_examples(real_event, construct_event):
+    import pdb;pdb.set_trace()
+    return None
+
+def get_events(round_bucket, money_bucket, subject_bucket, org_invest_bucket, text, event_list):
     ground_truth = []
     for event in event_list:
         if event['text'] == text:
@@ -111,8 +115,7 @@ def get_examples(round_bucket, money_bucket, subject_bucket, org_invest_bucket, 
         print([f[0]['label'] for f in feature])
         print([f[1]['text'] for f in feature])
     print('*'*20)
-    #import pdb;pdb.set_trace()
-    return None
+    return ground_truth, feature_list
 
 
 def get_buckets(text, event_list):
