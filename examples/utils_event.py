@@ -1,3 +1,4 @@
+import copy
 import json
 import itertools
 from collections import Counter
@@ -67,14 +68,79 @@ def construct_data(data_dir = '/data/share/zhanghaipeng/data/chuangtouribao/even
                 if cnt > 1:# 相同段落中有多个事件
                     round_bucket, money_bucket, subject_bucket, org_invest_bucket = get_buckets(text, event_list)
                     real_event, construct_event = get_events(round_bucket, money_bucket, subject_bucket, org_invest_bucket, text, event_list)
-                    examples = get_examples(real_event, construct_event)                            
+                    examples = get_examples(text, real_event, construct_event) 
+                    for example in examples:
+                        if example['cls_label'] == 1:
+                            print(len(example['anno_list']))
+                            print(example['anno_list'])
+
+                        writer.write(json.dumps(example,ensure_ascii=False)+'\n')
     writer.close()
 
-def get_examples(real_event, construct_event):
-    import pdb;pdb.set_trace()
-    return None
+def get_examples(input_str, real_event, construct_event):
+    """
+        融资主体-投资机构-投融资金额-融资轮次
+        如果字段=空，用'#'表示
+    """
+    examples = []
+    
+    target_labels = ['融资主体','投资机构','投融资金额','融资轮次']
+    
+    target_num = len(target_labels)
+    real_list = []
+    construct_list = []
+
+    for event in real_event:
+        real = ['#'] * target_num
+        anno_list = event['anno_list']
+        
+        #支持多个投资机构
+        org_invest_idx = [idx for idx, anno in enumerate(anno_list) if anno[0]['label'] == target_labels[1]]
+        org_invest_num = len(org_invest_idx)
+        if org_invest_num > 1:   
+            anno_list_ = []
+            for idx in org_invest_idx:
+                tmp_anno_list = copy.deepcopy(anno_list)
+                del(tmp_anno_list[idx])
+                anno_list_.append(tmp_anno_list)
+        else:
+            anno_list_ = [anno_list]
+        for anno_item in anno_list_:
+            for anno in anno_item:
+                label = anno[0]['label']
+                text = anno[1]['text']
+                for i in range(len(target_labels)):
+                    if label == target_labels[i]:
+                        real[i] = text
+            real_list.append('-'.join(real))
+    for event in construct_event:
+        example = {}
+        cls_label = 0
+        construct = ['#'] * 4
+        for item in event:
+            label = item[0]['label']
+            text = item[1]['text']
+            for i in range(len(target_labels)):
+                if label == target_labels[i]:
+                    construct[i] = text
+        construct_str = '-'.join(construct)
+        construct_list.append(construct_str)
+        
+        if construct_str in real_list:
+            cls_label = 1
+        example['text'] = input_str
+        example['cls_label'] = cls_label
+        example['anno_list'] = [item for item in event]
+        examples.append(example)
+    #数据验证
+    if len(set(real_list) & set(construct_list)) > len(set(real_list)):
+        import pdb;pdb.set_trace()
+    print(real_list)
+    print(construct_list)
+    return examples
 
 def get_events(round_bucket, money_bucket, subject_bucket, org_invest_bucket, text, event_list):
+    target_labels = ['融资主体','投资机构','投融资金额','融资轮次']
     ground_truth = []
     for event in event_list:
         if event['text'] == text:
@@ -111,11 +177,22 @@ def get_events(round_bucket, money_bucket, subject_bucket, org_invest_bucket, te
     print('合成事件:')
     buckets_not_none = [bucket for bucket in buckets if len(bucket) > 0]
     feature_list = list( itertools.product(*buckets_not_none) )
+    #允许一个slot为空
+    slot_none_list = []
     for feature in feature_list:
+        feature_list_ = [item for item in feature]
+        for i in range(len(feature_list_)):
+            feature_ = copy.deepcopy(feature_list_)
+            if feature_[i][0]['label'] != target_labels[0]:
+                del(feature_[i])
+                slot_none_list.append(tuple(feature_))
+    #允许多个slot为空
+    #TODO
+    for feature in feature_list+slot_none_list:
         print([f[0]['label'] for f in feature])
         print([f[1]['text'] for f in feature])
     print('*'*20)
-    return ground_truth, feature_list
+    return ground_truth, feature_list+slot_none_list
 
 
 def get_buckets(text, event_list):
