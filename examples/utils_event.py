@@ -1,322 +1,645 @@
-import random
-import copy
+# coding=utf-8
+# Copyright 2018 The Google AI Language Team Authors and The HuggingFace Inc. team.
+# Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+""" BERT classification fine-tuning: utilities to work with GLUE tasks """
+
+from __future__ import absolute_import, division, print_function
+
+import csv
+import logging
+import os
+import sys
 import json
-import itertools
-from collections import Counter
-from tqdm import tqdm
+import copy
+from io import open
 
-random.seed(666)
-DATA_DIR = '/data/share/zhanghaipeng/data/chuangtouribao/event/'
-TARGET_LABELS = ['融资主体','投资机构','投融资金额','融资轮次']
+from scipy.stats import pearsonr, spearmanr
+from sklearn.metrics import matthews_corrcoef, f1_score
 
-def get_target_fields(annotation):
-    return_info = 0
-    return_anno = {}
-    old_label = annotation['label'][0]
-    if old_label.find(TARGET_LABELS[1]) != -1:
-        new_label = TARGET_LABELS[1]
+logger = logging.getLogger(__name__)
+
+
+class InputExample(object):
+    """A single training/test example for simple sequence classification."""
+
+    def __init__(self, guid, text_a, text_b=None, label=None):
+        """Constructs a InputExample.
+
+        Args:
+            guid: Unique id for the example.
+            text_a: string. The untokenized text of the first sequence. For single
+            sequence tasks, only this sequence must be specified.
+            text_b: (Optional) string. The untokenized text of the second sequence.
+            Only must be specified for sequence pair tasks.
+            label: (Optional) string. The label of the example. This should be
+            specified for train and dev examples, but not for test examples.
+        """
+        self.guid = guid
+        self.text_a = text_a
+        self.text_b = text_b
+        self.label = label
+
+
+class InputFeatures(object):
+    """A single set of features of data."""
+
+    def __init__(self, input_ids, input_mask, segment_ids, label_id):
+        self.input_ids = input_ids
+        self.input_mask = input_mask
+        self.segment_ids = segment_ids
+        self.label_id = label_id
+
+
+class DataProcessor(object):
+    """Base class for data converters for sequence classification data sets."""
+
+    def get_train_examples(self, data_dir):
+        """Gets a collection of `InputExample`s for the train set."""
+        raise NotImplementedError()
+
+    def get_dev_examples(self, data_dir):
+        """Gets a collection of `InputExample`s for the dev set."""
+        raise NotImplementedError()
+
+    def get_labels(self):
+        """Gets the list of labels for this data set."""
+        raise NotImplementedError()
+
+    @classmethod
+    def _read_tsv(cls, input_file, quotechar=None):
+        """Reads a tab separated value file."""
+        with open(input_file, "r", encoding="utf-8-sig") as f:
+            reader = csv.reader(f, delimiter="\t", quotechar=quotechar)
+            lines = []
+            for line in reader:
+                if sys.version_info[0] == 2:
+                    line = list(unicode(cell, 'utf-8') for cell in line)
+                lines.append(line)
+            return lines
+
+
+class MrpcProcessor(DataProcessor):
+    """Processor for the MRPC data set (GLUE version)."""
+
+    def get_train_examples(self, data_dir):
+        """See base class."""
+        logger.info("LOOKING AT {}".format(os.path.join(data_dir, "train.tsv")))
+        return self._create_examples(
+            self._read_tsv(os.path.join(data_dir, "train.tsv")), "train")
+
+    def get_dev_examples(self, data_dir):
+        """See base class."""
+        return self._create_examples(
+            self._read_tsv(os.path.join(data_dir, "dev.tsv")), "dev")
+
+    def get_labels(self):
+        """See base class."""
+        return ["0", "1"]
+
+    def _create_examples(self, lines, set_type):
+        """Creates examples for the training and dev sets."""
+        examples = []
+        for (i, line) in enumerate(lines):
+            if i == 0:
+                continue
+            guid = "%s-%s" % (set_type, i)
+            text_a = line[3]
+            text_b = line[4]
+            label = line[0]
+            examples.append(
+                InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
+        return examples
+
+
+class MnliProcessor(DataProcessor):
+    """Processor for the MultiNLI data set (GLUE version)."""
+
+    def get_train_examples(self, data_dir):
+        """See base class."""
+        return self._create_examples(
+            self._read_tsv(os.path.join(data_dir, "train.tsv")), "train")
+
+    def get_dev_examples(self, data_dir):
+        """See base class."""
+        return self._create_examples(
+            self._read_tsv(os.path.join(data_dir, "dev_matched.tsv")),
+            "dev_matched")
+
+    def get_labels(self):
+        """See base class."""
+        return ["contradiction", "entailment", "neutral"]
+
+    def _create_examples(self, lines, set_type):
+        """Creates examples for the training and dev sets."""
+        examples = []
+        for (i, line) in enumerate(lines):
+            if i == 0:
+                continue
+            guid = "%s-%s" % (set_type, line[0])
+            text_a = line[8]
+            text_b = line[9]
+            label = line[-1]
+            examples.append(
+                InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
+        return examples
+
+
+class MnliMismatchedProcessor(MnliProcessor):
+    """Processor for the MultiNLI Mismatched data set (GLUE version)."""
+
+    def get_dev_examples(self, data_dir):
+        """See base class."""
+        return self._create_examples(
+            self._read_tsv(os.path.join(data_dir, "dev_mismatched.tsv")),
+            "dev_matched")
+
+
+class ColaProcessor(DataProcessor):
+    """Processor for the CoLA data set (GLUE version)."""
+
+    def get_train_examples(self, data_dir):
+        """See base class."""
+        return self._create_examples(
+            self._read_tsv(os.path.join(data_dir, "train.tsv")), "train")
+
+    def get_dev_examples(self, data_dir):
+        """See base class."""
+        return self._create_examples(
+            self._read_tsv(os.path.join(data_dir, "dev.tsv")), "dev")
+
+    def get_labels(self):
+        """See base class."""
+        return ["0", "1"]
+
+    def _create_examples(self, lines, set_type):
+        """Creates examples for the training and dev sets."""
+        examples = []
+        for (i, line) in enumerate(lines):
+            guid = "%s-%s" % (set_type, i)
+            text_a = line[3]
+            label = line[1]
+            examples.append(
+                InputExample(guid=guid, text_a=text_a, text_b=None, label=label))
+        return examples
+
+
+class Sst2Processor(DataProcessor):
+    """Processor for the SST-2 data set (GLUE version)."""
+
+    def get_train_examples(self, data_dir):
+        """See base class."""
+        return self._create_examples(
+            self._read_tsv(os.path.join(data_dir, "train.tsv")), "train")
+
+    def get_dev_examples(self, data_dir):
+        """See base class."""
+        return self._create_examples(
+            self._read_tsv(os.path.join(data_dir, "dev.tsv")), "dev")
+
+    def get_labels(self):
+        """See base class."""
+        return ["0", "1"]
+
+    def _create_examples(self, lines, set_type):
+        """Creates examples for the training and dev sets."""
+        examples = []
+        for (i, line) in enumerate(lines):
+            if i == 0:
+                continue
+            guid = "%s-%s" % (set_type, i)
+            text_a = line[0]
+            label = line[1]
+            examples.append(
+                InputExample(guid=guid, text_a=text_a, text_b=None, label=label))
+        return examples
+
+
+class StsbProcessor(DataProcessor):
+    """Processor for the STS-B data set (GLUE version)."""
+
+    def get_train_examples(self, data_dir):
+        """See base class."""
+        return self._create_examples(
+            self._read_tsv(os.path.join(data_dir, "train.tsv")), "train")
+
+    def get_dev_examples(self, data_dir):
+        """See base class."""
+        return self._create_examples(
+            self._read_tsv(os.path.join(data_dir, "dev.tsv")), "dev")
+
+    def get_labels(self):
+        """See base class."""
+        return [None]
+
+    def _create_examples(self, lines, set_type):
+        """Creates examples for the training and dev sets."""
+        examples = []
+        for (i, line) in enumerate(lines):
+            if i == 0:
+                continue
+            guid = "%s-%s" % (set_type, line[0])
+            text_a = line[7]
+            text_b = line[8]
+            label = line[-1]
+            examples.append(
+                InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
+        return examples
+
+
+class QqpProcessor(DataProcessor):
+    """Processor for the QQP data set (GLUE version)."""
+
+    def get_train_examples(self, data_dir):
+        """See base class."""
+        return self._create_examples(
+            self._read_tsv(os.path.join(data_dir, "train.tsv")), "train")
+
+    def get_dev_examples(self, data_dir):
+        """See base class."""
+        return self._create_examples(
+            self._read_tsv(os.path.join(data_dir, "dev.tsv")), "dev")
+
+    def get_labels(self):
+        """See base class."""
+        return ["0", "1"]
+
+    def _create_examples(self, lines, set_type):
+        """Creates examples for the training and dev sets."""
+        examples = []
+        for (i, line) in enumerate(lines):
+            if i == 0:
+                continue
+            guid = "%s-%s" % (set_type, line[0])
+            try:
+                text_a = line[3]
+                text_b = line[4]
+                label = line[5]
+            except IndexError:
+                continue
+            examples.append(
+                InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
+        return examples
+
+
+class QnliProcessor(DataProcessor):
+    """Processor for the QNLI data set (GLUE version)."""
+
+    def get_train_examples(self, data_dir):
+        """See base class."""
+        return self._create_examples(
+            self._read_tsv(os.path.join(data_dir, "train.tsv")), "train")
+
+    def get_dev_examples(self, data_dir):
+        """See base class."""
+        return self._create_examples(
+            self._read_tsv(os.path.join(data_dir, "dev.tsv")), 
+            "dev_matched")
+
+    def get_labels(self):
+        """See base class."""
+        return ["entailment", "not_entailment"]
+
+    def _create_examples(self, lines, set_type):
+        """Creates examples for the training and dev sets."""
+        examples = []
+        for (i, line) in enumerate(lines):
+            if i == 0:
+                continue
+            guid = "%s-%s" % (set_type, line[0])
+            text_a = line[1]
+            text_b = line[2]
+            label = line[-1]
+            examples.append(
+                InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
+        return examples
+
+
+class RteProcessor(DataProcessor):
+    """Processor for the RTE data set (GLUE version)."""
+
+    def get_train_examples(self, data_dir):
+        """See base class."""
+        return self._create_examples(
+            self._read_tsv(os.path.join(data_dir, "train.tsv")), "train")
+
+    def get_dev_examples(self, data_dir):
+        """See base class."""
+        return self._create_examples(
+            self._read_tsv(os.path.join(data_dir, "dev.tsv")), "dev")
+
+    def get_labels(self):
+        """See base class."""
+        return ["entailment", "not_entailment"]
+
+    def _create_examples(self, lines, set_type):
+        """Creates examples for the training and dev sets."""
+        examples = []
+        for (i, line) in enumerate(lines):
+            if i == 0:
+                continue
+            guid = "%s-%s" % (set_type, line[0])
+            text_a = line[1]
+            text_b = line[2]
+            label = line[-1]
+            examples.append(
+                InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
+        return examples
+
+
+class WnliProcessor(DataProcessor):
+    """Processor for the WNLI data set (GLUE version)."""
+
+    def get_train_examples(self, data_dir):
+        """See base class."""
+        return self._create_examples(
+            self._read_tsv(os.path.join(data_dir, "train.tsv")), "train")
+
+    def get_dev_examples(self, data_dir):
+        """See base class."""
+        return self._create_examples(
+            self._read_tsv(os.path.join(data_dir, "dev.tsv")), "dev")
+
+    def get_labels(self):
+        """See base class."""
+        return ["0", "1"]
+
+    def _create_examples(self, lines, set_type):
+        """Creates examples for the training and dev sets."""
+        examples = []
+        for (i, line) in enumerate(lines):
+            if i == 0:
+                continue
+            guid = "%s-%s" % (set_type, line[0])
+            text_a = line[1]
+            text_b = line[2]
+            label = line[-1]
+            examples.append(
+                InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
+        return examples
+
+class EventProcessor(DataProcessor):
+    """多事件判别数据预处理"""
+
+    def get_train_examples(self, data_dir):
+        """See base class."""
+        return self._create_examples(
+            self._read_tsv(os.path.join(data_dir, "train.json")), "train")
+
+    def get_dev_examples(self, data_dir):
+        """See base class."""
+        return self._create_examples(
+            self._read_tsv(os.path.join(data_dir, "dev.json")), "dev")
+
+    def get_labels(self):
+        """See base class."""
+        return ["0", "1"]
+    
+    
+    def _create_examples(self, lines, set_type):
+        """Creates examples for the training and dev sets."""
+        examples = []
+        for (i, line) in enumerate(lines):
+            guid = "%s-%s" % (set_type, line[0])
+            example_ = json.loads(line[0])
+            text = example_['text']
+            anno_label = example_['anno_label']
+            text_a = anno_label + '。'+text
+            label = str(example_['cls_label'])
+            examples.append(
+                InputExample(guid=guid, text_a=text_a,label=label))
+        return examples
+
+
+def convert_examples_to_features(examples, label_list, max_seq_length,
+                                 tokenizer, output_mode,
+                                 cls_token_at_end=False, pad_on_left=False,
+                                 cls_token='[CLS]', sep_token='[SEP]', pad_token=0,
+                                 sequence_a_segment_id=0, sequence_b_segment_id=1,
+                                 cls_token_segment_id=1, pad_token_segment_id=0,
+                                 mask_padding_with_zero=True):
+    """ Loads a data file into a list of `InputBatch`s
+        `cls_token_at_end` define the location of the CLS token:
+            - False (Default, BERT/XLM pattern): [CLS] + A + [SEP] + B + [SEP]
+            - True (XLNet/GPT pattern): A + [SEP] + B + [SEP] + [CLS]
+        `cls_token_segment_id` define the segment id associated to the CLS token (0 for BERT, 2 for XLNet)
+    """
+
+    label_map = {label : i for i, label in enumerate(label_list)}
+
+    features = []
+    for (ex_index, example) in enumerate(examples):
+        if ex_index % 10000 == 0:
+            logger.info("Writing example %d of %d" % (ex_index, len(examples)))
+
+        tokens_a = tokenizer.tokenize(example.text_a)
+
+        tokens_b = None
+        if example.text_b:
+            tokens_b = tokenizer.tokenize(example.text_b)
+            # Modifies `tokens_a` and `tokens_b` in place so that the total
+            # length is less than the specified length.
+            # Account for [CLS], [SEP], [SEP] with "- 3"
+            _truncate_seq_pair(tokens_a, tokens_b, max_seq_length - 3)
+        else:
+            # Account for [CLS] and [SEP] with "- 2"
+            if len(tokens_a) > max_seq_length - 2:
+                tokens_a = tokens_a[:(max_seq_length - 2)]
+
+        # The convention in BERT is:
+        # (a) For sequence pairs:
+        #  tokens:   [CLS] is this jack ##son ##ville ? [SEP] no it is not . [SEP]
+        #  type_ids:   0   0  0    0    0     0       0   0   1  1  1  1   1   1
+        # (b) For single sequences:
+        #  tokens:   [CLS] the dog is hairy . [SEP]
+        #  type_ids:   0   0   0   0  0     0   0
+        #
+        # Where "type_ids" are used to indicate whether this is the first
+        # sequence or the second sequence. The embedding vectors for `type=0` and
+        # `type=1` were learned during pre-training and are added to the wordpiece
+        # embedding vector (and position vector). This is not *strictly* necessary
+        # since the [SEP] token unambiguously separates the sequences, but it makes
+        # it easier for the model to learn the concept of sequences.
+        #
+        # For classification tasks, the first vector (corresponding to [CLS]) is
+        # used as as the "sentence vector". Note that this only makes sense because
+        # the entire model is fine-tuned.
+        tokens = tokens_a + [sep_token]
+        segment_ids = [sequence_a_segment_id] * len(tokens)
+
+        if tokens_b:
+            tokens += tokens_b + [sep_token]
+            segment_ids += [sequence_b_segment_id] * (len(tokens_b) + 1)
+
+        if cls_token_at_end:
+            tokens = tokens + [cls_token]
+            segment_ids = segment_ids + [cls_token_segment_id]
+        else:
+            tokens = [cls_token] + tokens
+            segment_ids = [cls_token_segment_id] + segment_ids
+
+        input_ids = tokenizer.convert_tokens_to_ids(tokens)
+
+        # The mask has 1 for real tokens and 0 for padding tokens. Only real
+        # tokens are attended to.
+        input_mask = [1 if mask_padding_with_zero else 0] * len(input_ids)
+
+        # Zero-pad up to the sequence length.
+        padding_length = max_seq_length - len(input_ids)
+        if pad_on_left:
+            input_ids = ([pad_token] * padding_length) + input_ids
+            input_mask = ([0 if mask_padding_with_zero else 1] * padding_length) + input_mask
+            segment_ids = ([pad_token_segment_id] * padding_length) + segment_ids
+        else:
+            input_ids = input_ids + ([pad_token] * padding_length)
+            input_mask = input_mask + ([0 if mask_padding_with_zero else 1] * padding_length)
+            segment_ids = segment_ids + ([pad_token_segment_id] * padding_length)
+
+        assert len(input_ids) == max_seq_length
+        assert len(input_mask) == max_seq_length
+        assert len(segment_ids) == max_seq_length
+
+        if output_mode == "classification":
+            label_id = label_map[example.label]
+        elif output_mode == "regression":
+            label_id = float(example.label)
+        else:
+            raise KeyError(output_mode)
+
+        if ex_index < 5:
+            logger.info("*** Example ***")
+            logger.info("guid: %s" % (example.guid))
+            logger.info("tokens: %s" % " ".join(
+                    [str(x) for x in tokens]))
+            logger.info("input_ids: %s" % " ".join([str(x) for x in input_ids]))
+            logger.info("input_mask: %s" % " ".join([str(x) for x in input_mask]))
+            logger.info("segment_ids: %s" % " ".join([str(x) for x in segment_ids]))
+            logger.info("label: %s (id = %d)" % (example.label, label_id))
+
+        features.append(
+                InputFeatures(input_ids=input_ids,
+                              input_mask=input_mask,
+                              segment_ids=segment_ids,
+                              label_id=label_id))
+    return features
+
+
+def _truncate_seq_pair(tokens_a, tokens_b, max_length):
+    """Truncates a sequence pair in place to the maximum length."""
+
+    # This is a simple heuristic which will always truncate the longer sequence
+    # one token at a time. This makes more sense than truncating an equal percent
+    # of tokens from each, since if one sequence is very short then each token
+    # that's truncated likely contains more information than a longer sequence.
+    while True:
+        total_length = len(tokens_a) + len(tokens_b)
+        if total_length <= max_length:
+            break
+        if len(tokens_a) > len(tokens_b):
+            tokens_a.pop()
+        else:
+            tokens_b.pop()
+
+
+def simple_accuracy(preds, labels):
+    return (preds == labels).mean()
+
+
+def acc_and_f1(preds, labels):
+    acc = simple_accuracy(preds, labels)
+    f1 = f1_score(y_true=labels, y_pred=preds)
+    return {
+        "acc": acc,
+        "f1": f1,
+        "acc_and_f1": (acc + f1) / 2,
+    }
+
+
+def pearson_and_spearman(preds, labels):
+    pearson_corr = pearsonr(preds, labels)[0]
+    spearman_corr = spearmanr(preds, labels)[0]
+    return {
+        "pearson": pearson_corr,
+        "spearmanr": spearman_corr,
+        "corr": (pearson_corr + spearman_corr) / 2,
+    }
+
+
+def compute_metrics(task_name, preds, labels):
+    assert len(preds) == len(labels)
+    if task_name == "cola":
+        return {"mcc": matthews_corrcoef(labels, preds)}
+    elif task_name == "sst-2":
+        return {"acc": simple_accuracy(preds, labels)}
+    elif task_name == "mrpc":
+        return acc_and_f1(preds, labels)
+    elif task_name == "event":
+        return acc_and_f1(preds, labels)
+    elif task_name == "sts-b":
+        return pearson_and_spearman(preds, labels)
+    elif task_name == "qqp":
+        return acc_and_f1(preds, labels)
+    elif task_name == "mnli":
+        return {"acc": simple_accuracy(preds, labels)}
+    elif task_name == "mnli-mm":
+        return {"acc": simple_accuracy(preds, labels)}
+    elif task_name == "qnli":
+        return {"acc": simple_accuracy(preds, labels)}
+    elif task_name == "rte":
+        return {"acc": simple_accuracy(preds, labels)}
+    elif task_name == "wnli":
+        return {"acc": simple_accuracy(preds, labels)}
     else:
-        new_label = old_label[old_label.find('-')+1:]
-    
-    return_anno['label'] = {'label':new_label}
-    return_anno['position'] = annotation['position']
-    
-    if new_label in TARGET_LABELS:
-        return_info = 1
-    return return_info, return_anno
+        raise KeyError(task_name)
 
-def get_data(data_dir = DATA_DIR ,data_path='raw_data.json',save_path = 'data_with_label_position.json'):
-    """
-        从标注数据中提取待处理的数据
-    """
-    writer = open(data_dir+save_path, 'a')
-    with open(data_dir+data_path, 'r') as reader:
-        textlines = reader.readlines()
-        total_num = len(textlines)
-        for i,line in enumerate(textlines):
-            print(i,total_num)
-            article = json.loads(json.loads(line)['input'])
-            article_dict = {}
-            article_dict['id'] = i
-            article_dict['event_list'] = []
-            for para in article:
-                if 'annotation' in para.keys():
-                    annotations = para['annotation']
-                    data = para['data']
-                    group_id = Counter([anno['group_id'] for anno in annotations])
-                    for key in group_id.keys():
-                        event_dict = {}
-                        event_dict['text'] = data
-                        event_dict['anno_list'] = []
-                        event = [anno for anno in annotations if anno['group_id'] == key]
-                        for anno in event:
-                            info, new_anno = get_target_fields(anno)
-                            if info:
-                                event_dict['anno_list'].append([new_anno['label'], new_anno['position']])
-                        article_dict['event_list'].append(event_dict)
-            writer.write(json.dumps(article_dict,ensure_ascii=False)+'\n')
-    writer.close()
-                        
-def construct_data(data_dir = DATA_DIR, data_path='data_with_label_position.json',save_path = 'data.json'):
-    """
-        数据构建
-    """
-    writer = open(data_dir+save_path, 'a')
-    with open(data_dir+data_path, 'r') as reader:
-        textlines = reader.readlines()
-        total_num = len(textlines)
-        for i,line in enumerate(textlines):
-            event_list = json.loads(line)['event_list']
-            text_dict = Counter([event['text'] for event in event_list])
-            for text, cnt in text_dict.items():
-                if cnt > 1:# 相同段落中有多个事件
-                    subject_bucket, org_invest_bucket, money_bucket, round_bucket = get_buckets(text, event_list)
-                    real_event, construct_event = get_events(round_bucket, money_bucket, subject_bucket, org_invest_bucket, text, event_list)
-                    examples = get_examples(text, real_event, construct_event) 
-                    new_examples = balance_examples(examples)
-                    for example in new_examples:
-                        #print(example['cls_label'],example['anno_label'])
-                        writer.write(json.dumps(example,ensure_ascii=False)+'\n')
-    writer.close()
+processors = {
+    "event": EventProcessor,
+    "cola": ColaProcessor,
+    "mnli": MnliProcessor,
+    "mnli-mm": MnliMismatchedProcessor,
+    "mrpc": MrpcProcessor,
+    "sst-2": Sst2Processor,
+    "sts-b": StsbProcessor,
+    "qqp": QqpProcessor,
+    "qnli": QnliProcessor,
+    "rte": RteProcessor,
+    "wnli": WnliProcessor,
+}
 
-def balance_examples(examples):
-    """
-        正负样本不平衡采样
-        局部平衡：单个句子中的正负样本平衡
-    """
-    new_examples = []
-    cls_counter = Counter([example['cls_label'] for example in examples])
-    cls_label_pos = [idx for idx, example in enumerate(examples) if example['cls_label'] == 1]
-    cls_label_neg = [idx for idx, example in enumerate(examples) if example['cls_label'] == 0]
-    if len(cls_counter.keys()) > 1:
-        num = cls_counter[0] - cls_counter[1]
-        if num > 0:
-            cls_label_neg_ = random.sample(cls_label_neg,cls_counter[1])
-            new_examples.extend([examples[i] for i in cls_label_pos])
-            new_examples.extend([examples[i] for i in cls_label_neg_])
-        else:
-            cls_label_pos_ = random.sample(cls_label_pos,cls_counter[0])
-            new_examples.extend([examples[i] for i in cls_label_pos_])
-            new_examples.extend([examples[i] for i in cls_label_neg])
-    return new_examples
+output_modes = {
+    "event": "classification",
+    "cola": "classification",
+    "mnli": "classification",
+    "mnli-mm": "classification",
+    "mrpc": "classification",
+    "sst-2": "classification",
+    "sts-b": "regression",
+    "qqp": "classification",
+    "qnli": "classification",
+    "rte": "classification",
+    "wnli": "classification",
+}
 
-def get_examples(input_str, real_event, construct_event):
-    """
-        融资主体-投资机构-投融资金额-融资轮次
-        用'#'表示字段为空
-    """
-    examples = []
-    
-    target_num = len(TARGET_LABELS)
-    real_list = []
-    construct_list = []
-
-    for event in real_event:
-        real = ['#'] * target_num
-        anno_list = event['anno_list']
-        
-        #支持多个投资机构
-        org_invest_idx = [idx for idx, anno in enumerate(anno_list) if anno[0]['label'] == TARGET_LABELS[1]]
-        org_invest_num = len(org_invest_idx)
-        if org_invest_num > 1:   
-            anno_list_ = []
-            for idx in org_invest_idx:
-                tmp_anno_list = copy.deepcopy(anno_list)
-                del(tmp_anno_list[idx])
-                anno_list_.append(tmp_anno_list)
-        else:
-            anno_list_ = [anno_list]
-        for anno_item in anno_list_:
-            for anno in anno_item:
-                label = anno[0]['label']
-                text = anno[1]['text']
-                for i in range(len(TARGET_LABELS)):
-                    if label == TARGET_LABELS[i]:
-                        real[i] = text
-            real_list.append('-'.join(real))
-    
-    #支持子事件
-    real_all_list = []
-    for real_ in real_list:
-        text_split = real_.split('-')
-        sub_bucket = [[],[],[],[]]
-        for i in range(len(TARGET_LABELS)):
-            sub_bucket[i].append('#')
-        for i in range(len(TARGET_LABELS)):
-            sub_bucket[i].append(text_split[i])
-        sub_event = list( itertools.product(*sub_bucket) )
-        real_all_list.extend(sub_event)
-    
-    #子事件去重，筛选(至少两个字段确定一个事件)
-    field_num = 2
-    real_filter_list = ['-'.join(real) for real in list(set(real_all_list)) if Counter(real)['#'] <= field_num]
-    
-    for event in construct_event:
-        example = {}
-        cls_label = 0
-        construct = ['#'] * 4
-        for item in event:
-            label = item[0]['label']
-            text = item[1]['text']
-            for i in range(len(TARGET_LABELS)):
-                if label == TARGET_LABELS[i]:
-                    construct[i] = text
-        construct_str = '-'.join(construct)
-        #合成事件筛选(至少两个字段确定一个事件) 
-        if Counter(construct_str)['#'] > field_num:
-            continue
-        construct_list.append(construct_str)
-        if construct_str in real_filter_list: #支持事件和子事件
-            cls_label = 1
-        example['text'] = input_str
-        example['cls_label'] = cls_label
-        example['anno_label'] = construct_str
-        example['anno_list'] = [item for item in event]
-        examples.append(example)
-    #数据验证
-    if len(set(real_list) & set(construct_list)) > len(set(real_list)):
-        import pdb;pdb.set_trace()
-    print(real_filter_list)
-    print(construct_list)
-    return examples
-
-def get_events(round_bucket, money_bucket, subject_bucket, org_invest_bucket, text, event_list):
-    
-    ground_truth = []
-    for event in event_list:
-        if event['text'] == text:
-            ground_truth.append(event)
-   
-    print('输入文本: ', text)
-    print('\n')
-
-    print('真实事件:')
-    for ground in ground_truth:
-        anno_list = ground['anno_list']
-        print([anno[0]['label'] for anno in anno_list])
-        print([anno[1]['text'] for anno in anno_list])
-    print('\n') 
-
-    buckets = [subject_bucket, org_invest_bucket, money_bucket, round_bucket]
-    
-    subject_list = [subject[1]['text'] for subject in subject_bucket]
-    org_invest_list = [org_invest[1]['text'] for org_invest in org_invest_bucket]
-    money_list = [money[1]['text'] for money in money_bucket]
-    round_list = [round_[1]['text'] for round_ in round_bucket]
-    
-    print('桶:')
-    print(subject_list)
-    print(org_invest_list)
-    print(money_list)
-    print(round_list)
-    print('\n')
-    
-    
-    print('桶合成:')
-    buckets_none = [subject_list, org_invest_list, money_list, round_list]
-    feature_none_list = list( itertools.product(*buckets_none) )
-    for feature_none in feature_none_list:
-        print(feature_none)
-    
-    print('合成事件:')
-    buckets_not_none = [bucket for bucket in buckets if len(bucket) > 0]
-    feature_list = list( itertools.product(*buckets_not_none) )
-    
-    assert( len(feature_none_list) == len(feature_list) )
-    
-    for feature in feature_list:
-        print([f[0]['label'] for f in feature])
-        print([f[1]['text'] for f in feature])
-    print('*'*20)
-    return ground_truth, feature_list
-
-def init_buckets():
-    subject_bucket = []
-    org_invest_bucket = []
-    round_bucket = [] 
-    money_bucket = []
-    
-    #添加空字段#
-    placeholder = {}
-    pos_dict = {}
-    pos_dict['endOffset'] = 10000
-    pos_dict['startOffset'] = 10000
-    pos_dict['paraOffset'] = 10000
-    placeholder['pos'] = pos_dict
-    placeholder['text'] = '#'
-
-    label_dict = {}
-    label_dict['label'] = TARGET_LABELS[0]
-    subject_bucket.append([label_dict, placeholder])
-    
-    label_dict = {}
-    label_dict['label'] = TARGET_LABELS[1]
-    org_invest_bucket.append([label_dict, placeholder])
-    
-    label_dict = {}
-    label_dict['label'] = TARGET_LABELS[2]
-    money_bucket.append([label_dict, placeholder])
-    
-    label_dict = {}
-    label_dict['label'] = TARGET_LABELS[3]
-    round_bucket.append([label_dict, placeholder])
-    return subject_bucket, org_invest_bucket, money_bucket, round_bucket
-
-def get_buckets(text, event_list):
-    subject_bucket, org_invest_bucket, money_bucket, round_bucket = init_buckets()
-
-    for event in event_list:
-        if event['text'] == text:
-            anno_list = event['anno_list']
-            for anno in anno_list:
-                if anno[0]['label'] == TARGET_LABELS[0]:
-                    subject_bucket.append(anno)
-                if anno[0]['label'] == TARGET_LABELS[1]:
-                    org_invest_bucket.append(anno)
-                if anno[0]['label'] == TARGET_LABELS[2]:
-                    money_bucket.append(anno)
-                if anno[0]['label'] == TARGET_LABELS[3]:
-                    round_bucket.append(anno)
-    
-    return subject_bucket, org_invest_bucket, money_bucket, round_bucket
-
-def data_checker(data_dir=DATA_DIR,data_path='data.json'):
-    text_set = set()
-    with open(data_dir + data_path, 'r') as reader:
-        for line in reader:
-            example = json.loads(line)
-            text_set.add(example['text'])
-    print(len(text_set))
-
-def train_test_split(data_dir=DATA_DIR, data_path='data.json', train_path = 'train.json', test_path = 'test.json'):
-    test_text_num = 0.1
-    text_set = set()
-    with open(data_dir + data_path, 'r') as reader:
-        for line in reader:
-            example = json.loads(line)
-            text_set.add(example['text'])
-    text_list = [text for text in text_set] 
-    test_text = random.sample(text_list,int( test_text_num * len(text_list) ))
-    train_list = []
-    test_list = []
-    
-    with open(data_dir + data_path, 'r') as reader:
-        for line in reader:
-            example = json.loads(line)
-            if example['text'] in test_text:
-                test_list.append(example)
-            else:
-                train_list.append(example)
-    with open (data_dir + train_path, 'a') as writer:
-        for example in train_list:
-            writer.write(json.dumps(example,ensure_ascii=False)+'\n')
-    
-    with open (data_dir + test_path, 'a') as writer:
-        for example in test_list:
-            writer.write(json.dumps(example,ensure_ascii=False)+'\n')
-    
-if __name__ == '__main__':
-    #get_data()
-    #construct_data()
-    data_checker()
-    #train_test_split()
+GLUE_TASKS_NUM_LABELS = {
+    "event": 2,
+    "cola": 2,
+    "mnli": 3,
+    "mrpc": 2,
+    "sst-2": 2,
+    "sts-b": 1,
+    "qqp": 2,
+    "qnli": 2,
+    "rte": 2,
+    "wnli": 2,
+}
