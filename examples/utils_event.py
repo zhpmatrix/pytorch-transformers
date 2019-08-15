@@ -288,7 +288,35 @@ def data_checker(data_dir=DATA_DIR,data_path='data.json'):
             text_set.add(example['text'])
     print(len(text_set))
 
+def train_test_split(data_dir=DATA_DIR, data_path='data.json', train_path = 'train.json', test_path = 'test.json'):
+    test_text_num = 0.1
+    text_set = set()
+    with open(data_dir + data_path, 'r') as reader:
+        for line in reader:
+            example = json.loads(line)
+            text_set.add(example['text'])
+    text_list = [text for text in text_set] 
+    test_text = random.sample(text_list,int( test_text_num * len(text_list) ))
+    train_list = []
+    test_list = []
+    
+    with open(data_dir + data_path, 'r') as reader:
+        for line in reader:
+            example = json.loads(line)
+            if example['text'] in test_text:
+                test_list.append(example)
+            else:
+                train_list.append(example)
+    with open (data_dir + train_path, 'a') as writer:
+        for example in train_list:
+            writer.write(json.dumps(example,ensure_ascii=False)+'\n')
+    
+    with open (data_dir + test_path, 'a') as writer:
+        for example in test_list:
+            writer.write(json.dumps(example,ensure_ascii=False)+'\n')
+    
 if __name__ == '__main__':
     #get_data()
     #construct_data()
     data_checker()
+    #train_test_split()
