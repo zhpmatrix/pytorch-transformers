@@ -26,7 +26,7 @@ import copy
 from io import open
 
 from scipy.stats import pearsonr, spearmanr
-from sklearn.metrics import matthews_corrcoef, f1_score
+from sklearn.metrics import matthews_corrcoef, f1_score, classification_report
 
 logger = logging.getLogger(__name__)
 
@@ -411,12 +411,12 @@ class EventProcessor(DataProcessor):
         """Creates examples for the training and dev sets."""
         examples = []
         for (i, line) in enumerate(lines):
-            guid = "%s-%s" % (set_type, line[0])
             example_ = json.loads(line[0])
             text = example_['text']
             anno_label = example_['anno_label']
             text_a = anno_label + '。'+text
             label = str(example_['cls_label'])
+            guid = "%s-%s-%s-%s" % (set_type, text, anno_label, label)
             examples.append(
                 InputExample(guid=guid, text_a=text_a,label=label))
         return examples
@@ -559,10 +559,13 @@ def simple_accuracy(preds, labels):
 def acc_and_f1(preds, labels):
     acc = simple_accuracy(preds, labels)
     f1 = f1_score(y_true=labels, y_pred=preds)
+    import pdb;pdb.set_trace()
+    report = classification_report(labels, preds)
     return {
         "acc": acc,
         "f1": f1,
         "acc_and_f1": (acc + f1) / 2,
+        "report":report
     }
 
 

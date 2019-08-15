@@ -57,7 +57,7 @@ def predict(test_data):
 if __name__ == "__main__":
     #get_data_fasttext()
     #data_dir = '/data/share/zhanghaipeng/data/chuangtouribao/event/fasttext/invest/data/'
-    data_dir = '/data/share/zhanghaipeng/data/chuangtouribao/event/fasttext/event/'
+    data_dir = '/data/share/zhanghaipeng/data/chuangtouribao/event/fasttext_anno/'
     train_data = data_dir + 'train.json'
     valid_data = data_dir + 'dev.json'
     test_data = data_dir + 'test.json'
