@@ -4,24 +4,26 @@ import itertools
 from collections import Counter
 from tqdm import tqdm
 
+DATA_DIR = '/data/share/zhanghaipeng/data/chuangtouribao/event/'
+TARGET_LABELS = ['融资主体','投资机构','投融资金额','融资轮次']
+
 def get_target_fields(annotation):
     return_info = 0
     return_anno = {}
-    target_labels = ['融资主体','投资机构','投融资金额','融资轮次']
     old_label = annotation['label'][0]
-    if old_label.find(target_labels[1]) != -1:
-        new_label = target_labels[1]
+    if old_label.find(TARGET_LABELS[1]) != -1:
+        new_label = TARGET_LABELS[1]
     else:
         new_label = old_label[old_label.find('-')+1:]
     
     return_anno['label'] = {'label':new_label}
     return_anno['position'] = annotation['position']
     
-    if new_label in target_labels:
+    if new_label in TARGET_LABELS:
         return_info = 1
     return return_info, return_anno
 
-def get_data(data_dir = '/data/share/zhanghaipeng/data/chuangtouribao/event/',data_path='raw_data.json',save_path = 'data_with_label_position.json'):
+def get_data(data_dir = DATA_DIR ,data_path='raw_data.json',save_path = 'data_with_label_position.json'):
     """
         从标注数据中提取待处理的数据
     """
@@ -53,7 +55,7 @@ def get_data(data_dir = '/data/share/zhanghaipeng/data/chuangtouribao/event/',da
             writer.write(json.dumps(article_dict,ensure_ascii=False)+'\n')
     writer.close()
                         
-def construct_data(data_dir = '/data/share/zhanghaipeng/data/chuangtouribao/event/',data_path='data_with_label_position.json',save_path = 'data.json'):
+def construct_data(data_dir = DATA_DIR, data_path='data_with_label_position.json',save_path = 'data.json'):
     """
         数据构建
     """
@@ -84,9 +86,7 @@ def get_examples(input_str, real_event, construct_event):
     """
     examples = []
     
-    target_labels = ['融资主体','投资机构','投融资金额','融资轮次']
-    
-    target_num = len(target_labels)
+    target_num = len(TARGET_LABELS)
     real_list = []
     construct_list = []
 
@@ -95,7 +95,7 @@ def get_examples(input_str, real_event, construct_event):
         anno_list = event['anno_list']
         
         #支持多个投资机构
-        org_invest_idx = [idx for idx, anno in enumerate(anno_list) if anno[0]['label'] == target_labels[1]]
+        org_invest_idx = [idx for idx, anno in enumerate(anno_list) if anno[0]['label'] == TARGET_LABELS[1]]
         org_invest_num = len(org_invest_idx)
         if org_invest_num > 1:   
             anno_list_ = []
@@ -109,8 +109,8 @@ def get_examples(input_str, real_event, construct_event):
             for anno in anno_item:
                 label = anno[0]['label']
                 text = anno[1]['text']
-                for i in range(len(target_labels)):
-                    if label == target_labels[i]:
+                for i in range(len(TARGET_LABELS)):
+                    if label == TARGET_LABELS[i]:
                         real[i] = text
             real_list.append('-'.join(real))
     for event in construct_event:
@@ -120,8 +120,8 @@ def get_examples(input_str, real_event, construct_event):
         for item in event:
             label = item[0]['label']
             text = item[1]['text']
-            for i in range(len(target_labels)):
-                if label == target_labels[i]:
+            for i in range(len(TARGET_LABELS)):
+                if label == TARGET_LABELS[i]:
                     construct[i] = text
         construct_str = '-'.join(construct)
         construct_list.append(construct_str)
@@ -140,7 +140,6 @@ def get_examples(input_str, real_event, construct_event):
     return examples
 
 def get_events(round_bucket, money_bucket, subject_bucket, org_invest_bucket, text, event_list):
-    target_labels = ['融资主体','投资机构','投融资金额','融资轮次']
     ground_truth = []
     for event in event_list:
         if event['text'] == text:
@@ -183,7 +182,7 @@ def get_events(round_bucket, money_bucket, subject_bucket, org_invest_bucket, te
         feature_list_ = [item for item in feature]
         for i in range(len(feature_list_)):
             feature_ = copy.deepcopy(feature_list_)
-            if feature_[i][0]['label'] != target_labels[0]:
+            if feature_[i][0]['label'] != TARGET_LABELS[0]:
                 del(feature_[i])
                 slot_none_list.append(tuple(feature_))
     #允许多个slot为空
@@ -196,7 +195,6 @@ def get_events(round_bucket, money_bucket, subject_bucket, org_invest_bucket, te
 
 
 def get_buckets(text, event_list):
-    target_labels = ['融资主体','投资机构','投融资金额','融资轮次']
     round_bucket = [] 
     money_bucket = []
     subject_bucket = []
@@ -205,13 +203,13 @@ def get_buckets(text, event_list):
         if event['text'] == text:
             anno_list = event['anno_list']
             for anno in anno_list:
-                if anno[0]['label'] == target_labels[0]:
+                if anno[0]['label'] == TARGET_LABELS[0]:
                     subject_bucket.append(anno)
-                if anno[0]['label'] == target_labels[1]:
+                if anno[0]['label'] == TARGET_LABELS[1]:
                     org_invest_bucket.append(anno)
-                if anno[0]['label'] == target_labels[2]:
+                if anno[0]['label'] == TARGET_LABELS[2]:
                     money_bucket.append(anno)
-                if anno[0]['label'] == target_labels[3]:
+                if anno[0]['label'] == TARGET_LABELS[3]:
                     round_bucket.append(anno)
     return round_bucket,money_bucket,subject_bucket,org_invest_bucket
 
