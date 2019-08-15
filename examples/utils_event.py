@@ -280,6 +280,15 @@ def get_buckets(text, event_list):
     
     return subject_bucket, org_invest_bucket, money_bucket, round_bucket
 
+def data_checker(data_dir=DATA_DIR,data_path='data.json'):
+    text_set = set()
+    with open(data_dir + data_path, 'r') as reader:
+        for line in reader:
+            example = json.loads(line)
+            text_set.add(example['text'])
+    print(len(text_set))
+
 if __name__ == '__main__':
     #get_data()
-    construct_data()
+    #construct_data()
+    data_checker()
