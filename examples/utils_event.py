@@ -68,21 +68,22 @@ def construct_data(data_dir = DATA_DIR, data_path='data_with_label_position.json
             text_dict = Counter([event['text'] for event in event_list])
             for text, cnt in text_dict.items():
                 if cnt > 1:# 相同段落中有多个事件
-                    round_bucket, money_bucket, subject_bucket, org_invest_bucket = get_buckets(text, event_list)
+                    subject_bucket, org_invest_bucket, money_bucket, round_bucket = get_buckets(text, event_list)
                     real_event, construct_event = get_events(round_bucket, money_bucket, subject_bucket, org_invest_bucket, text, event_list)
                     examples = get_examples(text, real_event, construct_event) 
-                    for example in examples:
-                        if example['cls_label'] == 1:
-                            print(len(example['anno_list']))
-                            print(example['anno_list'])
+                    cls_counter = Counter([example['cls_label'] for example in examples])
+                    print(cls_counter)
+                    # 正负样本不平衡采样
 
+                    for example in examples:
+                        #print(example['cls_label'],example['anno_label'])
                         writer.write(json.dumps(example,ensure_ascii=False)+'\n')
     writer.close()
 
 def get_examples(input_str, real_event, construct_event):
     """
         融资主体-投资机构-投融资金额-融资轮次
-        如果字段=空，用'#'表示
+        用'#'表示字段为空
     """
     examples = []
     
@@ -113,6 +114,23 @@ def get_examples(input_str, real_event, construct_event):
                     if label == TARGET_LABELS[i]:
                         real[i] = text
             real_list.append('-'.join(real))
+    
+    #支持子事件
+    real_all_list = []
+    for real_ in real_list:
+        text_split = real_.split('-')
+        sub_bucket = [[],[],[],[]]
+        for i in range(len(TARGET_LABELS)):
+            sub_bucket[i].append('#')
+        for i in range(len(TARGET_LABELS)):
+            sub_bucket[i].append(text_split[i])
+        sub_event = list( itertools.product(*sub_bucket) )
+        real_all_list.extend(sub_event)
+    
+    #子事件去重，筛选(至少两个字段确定一个事件)
+    field_num = 2
+    real_filter_list = ['-'.join(real) for real in list(set(real_all_list)) if Counter(real)['#'] <= field_num]
+    
     for event in construct_event:
         example = {}
         cls_label = 0
@@ -124,22 +142,26 @@ def get_examples(input_str, real_event, construct_event):
                 if label == TARGET_LABELS[i]:
                     construct[i] = text
         construct_str = '-'.join(construct)
+        #合成事件筛选(至少两个字段确定一个事件) 
+        if Counter(construct_str)['#'] > field_num:
+            continue
         construct_list.append(construct_str)
-        
-        if construct_str in real_list:
+        if construct_str in real_filter_list: #支持事件和子事件
             cls_label = 1
         example['text'] = input_str
         example['cls_label'] = cls_label
+        example['anno_label'] = construct_str
         example['anno_list'] = [item for item in event]
         examples.append(example)
     #数据验证
     if len(set(real_list) & set(construct_list)) > len(set(real_list)):
         import pdb;pdb.set_trace()
-    print(real_list)
+    print(real_filter_list)
     print(construct_list)
     return examples
 
 def get_events(round_bucket, money_bucket, subject_bucket, org_invest_bucket, text, event_list):
+    
     ground_truth = []
     for event in event_list:
         if event['text'] == text:
@@ -155,50 +177,74 @@ def get_events(round_bucket, money_bucket, subject_bucket, org_invest_bucket, te
         print([anno[1]['text'] for anno in anno_list])
     print('\n') 
 
-    buckets = [round_bucket, money_bucket, subject_bucket, org_invest_bucket]
+    buckets = [subject_bucket, org_invest_bucket, money_bucket, round_bucket]
     
-    round_list = [round_[1]['text'] for round_ in round_bucket]
-    money_list = [money[1]['text'] for money in money_bucket]
     subject_list = [subject[1]['text'] for subject in subject_bucket]
     org_invest_list = [org_invest[1]['text'] for org_invest in org_invest_bucket]
+    money_list = [money[1]['text'] for money in money_bucket]
+    round_list = [round_[1]['text'] for round_ in round_bucket]
     
     print('桶:')
-    if len(round_list) > 0:
-        print(round_list)
-    if len(money_list) > 0:
-        print(money_list)
-    if len(subject_list) > 0:
-        print(subject_list)
-    if len(org_invest_list) > 0:
-        print(org_invest_list)
+    print(subject_list)
+    print(org_invest_list)
+    print(money_list)
+    print(round_list)
     print('\n')
-
+    
+    
+    print('桶合成:')
+    buckets_none = [subject_list, org_invest_list, money_list, round_list]
+    feature_none_list = list( itertools.product(*buckets_none) )
+    for feature_none in feature_none_list:
+        print(feature_none)
+    
     print('合成事件:')
     buckets_not_none = [bucket for bucket in buckets if len(bucket) > 0]
     feature_list = list( itertools.product(*buckets_not_none) )
-    #允许一个slot为空
-    slot_none_list = []
+    
+    assert( len(feature_none_list) == len(feature_list) )
+    
     for feature in feature_list:
-        feature_list_ = [item for item in feature]
-        for i in range(len(feature_list_)):
-            feature_ = copy.deepcopy(feature_list_)
-            if feature_[i][0]['label'] != TARGET_LABELS[0]:
-                del(feature_[i])
-                slot_none_list.append(tuple(feature_))
-    #允许多个slot为空
-    #TODO
-    for feature in feature_list+slot_none_list:
         print([f[0]['label'] for f in feature])
         print([f[1]['text'] for f in feature])
     print('*'*20)
-    return ground_truth, feature_list+slot_none_list
+    return ground_truth, feature_list
 
-
-def get_buckets(text, event_list):
-    round_bucket = [] 
-    money_bucket = []
+def init_buckets():
     subject_bucket = []
     org_invest_bucket = []
+    round_bucket = [] 
+    money_bucket = []
+    
+    #添加空字段#
+    placeholder = {}
+    pos_dict = {}
+    pos_dict['endOffset'] = 10000
+    pos_dict['startOffset'] = 10000
+    pos_dict['paraOffset'] = 10000
+    placeholder['pos'] = pos_dict
+    placeholder['text'] = '#'
+
+    label_dict = {}
+    label_dict['label'] = TARGET_LABELS[0]
+    subject_bucket.append([label_dict, placeholder])
+    
+    label_dict = {}
+    label_dict['label'] = TARGET_LABELS[1]
+    org_invest_bucket.append([label_dict, placeholder])
+    
+    label_dict = {}
+    label_dict['label'] = TARGET_LABELS[2]
+    money_bucket.append([label_dict, placeholder])
+    
+    label_dict = {}
+    label_dict['label'] = TARGET_LABELS[3]
+    round_bucket.append([label_dict, placeholder])
+    return subject_bucket, org_invest_bucket, money_bucket, round_bucket
+
+def get_buckets(text, event_list):
+    subject_bucket, org_invest_bucket, money_bucket, round_bucket = init_buckets()
+
     for event in event_list:
         if event['text'] == text:
             anno_list = event['anno_list']
@@ -211,7 +257,8 @@ def get_buckets(text, event_list):
                     money_bucket.append(anno)
                 if anno[0]['label'] == TARGET_LABELS[3]:
                     round_bucket.append(anno)
-    return round_bucket,money_bucket,subject_bucket,org_invest_bucket
+    
+    return subject_bucket, org_invest_bucket, money_bucket, round_bucket
 
 if __name__ == '__main__':
     #get_data()
