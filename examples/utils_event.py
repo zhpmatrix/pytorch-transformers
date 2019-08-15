@@ -1,9 +1,11 @@
+import random
 import copy
 import json
 import itertools
 from collections import Counter
 from tqdm import tqdm
 
+random.seed(666)
 DATA_DIR = '/data/share/zhanghaipeng/data/chuangtouribao/event/'
 TARGET_LABELS = ['融资主体','投资机构','投融资金额','融资轮次']
 
@@ -71,14 +73,32 @@ def construct_data(data_dir = DATA_DIR, data_path='data_with_label_position.json
                     subject_bucket, org_invest_bucket, money_bucket, round_bucket = get_buckets(text, event_list)
                     real_event, construct_event = get_events(round_bucket, money_bucket, subject_bucket, org_invest_bucket, text, event_list)
                     examples = get_examples(text, real_event, construct_event) 
-                    cls_counter = Counter([example['cls_label'] for example in examples])
-                    print(cls_counter)
-                    # 正负样本不平衡采样
-
-                    for example in examples:
+                    new_examples = balance_examples(examples)
+                    for example in new_examples:
                         #print(example['cls_label'],example['anno_label'])
                         writer.write(json.dumps(example,ensure_ascii=False)+'\n')
     writer.close()
+
+def balance_examples(examples):
+    """
+        正负样本不平衡采样
+        局部平衡：单个句子中的正负样本平衡
+    """
+    new_examples = []
+    cls_counter = Counter([example['cls_label'] for example in examples])
+    cls_label_pos = [idx for idx, example in enumerate(examples) if example['cls_label'] == 1]
+    cls_label_neg = [idx for idx, example in enumerate(examples) if example['cls_label'] == 0]
+    if len(cls_counter.keys()) > 1:
+        num = cls_counter[0] - cls_counter[1]
+        if num > 0:
+            cls_label_neg_ = random.sample(cls_label_neg,cls_counter[1])
+            new_examples.extend([examples[i] for i in cls_label_pos])
+            new_examples.extend([examples[i] for i in cls_label_neg_])
+        else:
+            cls_label_pos_ = random.sample(cls_label_pos,cls_counter[0])
+            new_examples.extend([examples[i] for i in cls_label_pos_])
+            new_examples.extend([examples[i] for i in cls_label_neg])
+    return new_examples
 
 def get_examples(input_str, real_event, construct_event):
     """
