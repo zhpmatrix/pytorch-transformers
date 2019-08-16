@@ -589,9 +589,57 @@ def init_logger(log_file):
     logger.addHandler(handler)
     return logger
 
+def event_extraction(event_list, pred_labels):
+    """
+        事件聚合: 根据构造事件 和 预测(真实)标签
+    """
+    anno_list = [event[0] for event in event_list]
+    real_labels = [int(event[1]) for event in event_list]
+    real_event_list = event_extraction_(anno_list, real_labels)
+    pred_event_list = event_extraction_(anno_list, pred_labels.tolist())
+    return real_event_list, pred_event_list
+
+def event_extraction_(anno_list, labels):
+    # 找到类别=1的所有事件
+    same_event_list = []
+    # 找到类别=1的所有事件的subject，忽略'#'
+    subject_set = set()
+    for anno, label in zip(anno_list, labels):
+        subject = anno.split('-')[0]
+        if int(label) == 1:
+            same_event_list.append(anno)
+            if subject != '#':
+                subject_set.add(subject)
+    # 多事件slot填充
+    event_list = []
+    for subject in subject_set:
+        tmp_event = {}
+        tmp_event['subject'] = subject
+        tmp_event['org_invest'] = []
+        tmp_event['money'] = ''
+        tmp_event['round'] = ''
+        for anno_label in same_event_list:
+            try:
+                subject_, org_invest_, money_, round_ = anno_label.split('-')
+            except:
+                #Pre-A单独处理
+                special_str = 'Pre-A'
+                start_idx = anno_label.find(special_str)
+                subject_, org_invest_, money_ = anno_label[:start_idx - 1].split('-')
+                round_ = anno_label[start_idx:]
+            if subject_ != '#' and subject_ == subject:
+                if org_invest_ != '#':
+                    tmp_event['org_invest'].append(org_invest_)
+                if money_ != '#':
+                    tmp_event['money'] = money_
+                if round_ != '#':
+                    tmp_event['round'] = round_
+        event_list.append(tmp_event)
+    return event_list
+
 def get_predictions(pred_labels, real_labels, examples, output_file):
+    header = ['预测标签','真实标签','事件']
     logger = init_logger(output_file)
-    
     text_set = {}
     for example in examples:
         text_start = example.text_a.find('。')
@@ -618,9 +666,53 @@ def get_predictions(pred_labels, real_labels, examples, output_file):
         real_list = real_labels[start:end]
         pred_list = pred_labels[start:end]
         
+        real_event_list, pred_event_list = event_extraction(construct_event_list, pred_list) 
         logger.info(text)
         logger.info('\n')
-        logger.info('\t\t'.join(['预测标签','真实标签','事件']))
+        
+        logger.info('真实事件:\n')
+        for real_event in real_event_list:
+            subject = real_event['subject']
+            if subject == '':
+                subject = '#'
+            org_invest = real_event['org_invest']
+            money = real_event['money']
+            if money == '':
+                money = '#'
+            round_ = real_event['round']
+            if round_ == '':
+                round_ = '#'
+            if len(org_invest) > 0:
+                for org in org_invest:
+                    event_str = '-'.join([subject,org,money,round_])
+                    logger.info(event_str)
+            else:
+                event_str = '-'.join([subject,'#',money,round_])
+                logger.info(event_str)
+        logger.info('\n')
+        
+        logger.info('预测事件:\n')
+        for pred_event in pred_event_list:
+            subject = pred_event['subject']
+            if subject == '':
+                subject = '#'
+            org_invest = pred_event['org_invest']
+            money = pred_event['money']
+            if money == '':
+                money = '#'
+            round_ = pred_event['round']
+            if round_ == '':
+                round_ = '#'
+            if len(org_invest) > 0:
+                for org in org_invest:
+                    event_str = '-'.join([subject,org,money,round_])
+                    logger.info(event_str)
+            else:
+                event_str = '-'.join([subject,'#',money,round_])
+                logger.info(event_str)
+        logger.info('\n')
+
+        logger.info('\t\t'.join(header))
         for i in range( len(construct_event_list) ):
             logger.info( '\t\t'.join([str(pred_list[i]),str(real_list[i]),construct_event_list[i][0]]) )
         logger.info('*' * 30)
