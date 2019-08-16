@@ -75,6 +75,7 @@ def construct_data(data_dir = DATA_DIR, data_path='data_with_label_position.json
                     subject_bucket, org_invest_bucket, money_bucket, round_bucket = get_buckets(text, event_list)
                     real_event, construct_event = get_events(round_bucket, money_bucket, subject_bucket, org_invest_bucket, text, event_list)
                     examples = get_examples(text, real_event, construct_event) 
+                    continue
                     new_examples = balance_examples(examples)
                     for example in new_examples:
                         #print(example['cls_label'],example['anno_label'])
@@ -341,9 +342,45 @@ def get_data_fasttext(data_dir=DATA_DIR, save_dir= DATA_DIR+'fasttext_anno/', tr
         for example in train_list:
             writer.write(' '.join(example)+'\n')
 
+def event_extraction(event_list):
+    # 找到类别=1的所有事件
+    same_event_list = []
+    # 找到类别=1的所有事件的subject，忽略'#'
+    subject_set = set()
+    for event in event_list:
+        anno_label, label = event
+        subject = anno_label.split('-')[0]
+        if int(label) == 1:
+            same_event_list.append(event)
+            if subject != '#':
+                subject_set.add(subject)
+    # 多事件slot填充
+    real_list = []
+    for subject in subject_set:
+        tmp_event = {}
+        tmp_event['subject'] = subject
+        tmp_event['org_invest'] = []
+        tmp_event['money'] = ''
+        tmp_event['round'] = ''
+        for event in same_event_list:
+            anno_label, _ = event
+            subject_, org_invest_, money_, round_ = anno_label.split('-')
+            if subject_ != '#' and subject_ == subject:
+                if org_invest_ != '#':
+                    tmp_event['org_invest'].append(org_invest_)
+                if money_ != '#':
+                    tmp_event['money'] = money_
+                if round_ != '#':
+                    tmp_event['round'] = round_
+        real_list.append(tmp_event)
+    return real_list
+
 if __name__ == '__main__':
     #get_data()
     #construct_data()
     #data_checker()
     #train_test_split()
-    get_data_fasttext()
+    #get_data_fasttext()
+    
+    event_list = [['#-#-1.2 亿元-B+ 轮', '1'], ['贝店-#-8.6 亿元-#', '1'], ['亮风台-#-#-B+ 轮', '1'], ['亮风台-#-1.2 亿元-#', '1'], ['亮风台-#-1.2 亿元-B+ 轮', '1'], ['贝店-#-1.2 亿元-#', '0'], ['贝店-#-1.2 亿元-B+ 轮', '0'], ['亮风台-#-8.6 亿元-#', '0'], ['亮风台-#-8.6 亿元-B+ 轮', '0'], ['贝店-#-#-B+ 轮', '0']]
+    event_extraction(event_list)
