@@ -401,6 +401,11 @@ class EventProcessor(DataProcessor):
         """See base class."""
         return self._create_examples(
             self._read_tsv(os.path.join(data_dir, "dev.json")), "dev")
+    
+    def get_test_examples(self, data_dir):
+        """See base class."""
+        return self._create_examples(
+            self._read_tsv(os.path.join(data_dir, "test.json")), "test")
 
     def get_labels(self):
         """See base class."""
@@ -418,7 +423,7 @@ class EventProcessor(DataProcessor):
             label = str(example_['cls_label'])
             guid = "%s-%s-%s-%s" % (set_type, text, anno_label, label)
             examples.append(
-                InputExample(guid=guid, text_a=text_a,label=label))
+                InputExample(guid=guid, text_a=text_a, label=label))
         return examples
 
 
@@ -559,7 +564,6 @@ def simple_accuracy(preds, labels):
 def acc_and_f1(preds, labels):
     acc = simple_accuracy(preds, labels)
     f1 = f1_score(y_true=labels, y_pred=preds)
-    import pdb;pdb.set_trace()
     report = classification_report(labels, preds)
     return {
         "acc": acc,
@@ -577,6 +581,50 @@ def pearson_and_spearman(preds, labels):
         "spearmanr": spearman_corr,
         "corr": (pearson_corr + spearman_corr) / 2,
     }
+
+def init_logger(log_file):
+    logger = logging.getLogger('PREDICTION')
+    logger.setLevel(level = logging.INFO)
+    handler = logging.FileHandler(log_file)
+    logger.addHandler(handler)
+    return logger
+
+def get_predictions(pred_labels, real_labels, examples, output_file):
+    logger = init_logger(output_file)
+    
+    text_set = {}
+    for example in examples:
+        text_start = example.text_a.find('。')
+        text = example.text_a[text_start+1:]
+        anno_label = example.text_a[:text_start]
+        label = example.label
+        if text in text_set.keys():
+            text_set[text].append([anno_label,label])
+        else:
+            text_set[text] = []
+            text_set[text].append([anno_label,label])
+    
+    text_range_dict = {}
+    example_num = 0
+    for k, v in text_set.items():
+        text_range_dict[k] = [example_num,example_num+len(v)]
+        example_num += len(v)
+    assert(example_num == len(pred_labels))
+    assert(example_num == len(real_labels))
+    
+    for text,range_ in text_range_dict.items():
+        start, end = range_[0], range_[1]
+        construct_event_list = text_set[text]
+        real_list = real_labels[start:end]
+        pred_list = pred_labels[start:end]
+        
+        logger.info(text)
+        logger.info('\n')
+        logger.info('\t\t'.join(['预测标签','真实标签','事件']))
+        for i in range( len(construct_event_list) ):
+            logger.info( '\t\t'.join([str(pred_list[i]),str(real_list[i]),construct_event_list[i][0]]) )
+        logger.info('*' * 30)
+    return {'predictions': None}
 
 
 def compute_metrics(task_name, preds, labels):
