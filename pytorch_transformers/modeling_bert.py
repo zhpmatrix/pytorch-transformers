@@ -270,7 +270,6 @@ class BertEmbeddings(nn.Module):
         embeddings = self.dropout(embeddings)
         return embeddings
 
-
 class BertSelfAttention(nn.Module):
     def __init__(self, config):
         super(BertSelfAttention, self).__init__()
@@ -973,13 +972,23 @@ class BertForSequenceClassification(BertPreTrainedModel):
 
     def forward(self, input_ids, token_type_ids=None, attention_mask=None, labels=None,
                 position_ids=None, head_mask=None):
-        outputs = self.bert(input_ids, position_ids=position_ids, token_type_ids=token_type_ids,
-                            attention_mask=attention_mask, head_mask=head_mask)
+        outputs = self.bert(input_ids, position_ids=position_ids, token_type_ids=token_type_ids,attention_mask=attention_mask, head_mask=head_mask)
         pooled_output = outputs[1]
 
         pooled_output = self.dropout(pooled_output)
-        logits = self.classifier(pooled_output)
 
+        logits = self.classifier(pooled_output)
+        
+        # 添加获取类别feature representation
+        batch_size, cls_num = logits.shape[0],logits.shape[1]
+        po_unsqueeze = torch.unsqueeze(pooled_output, 1)
+        po_repeat = po_unsqueeze.repeat(1,cls_num, 1)
+
+        w = self.classifier.weight
+        w_unsqueeze = torch.unsqueeze(w,0)
+        w_repeat = w_unsqueeze.repeat(batch_size, 1, 1)
+
+        cls_rep = torch.mul(po_repeat, w_repeat)
         outputs = (logits,) + outputs[2:]  # add hidden states and attention if they are here
 
         if labels is not None:
@@ -992,7 +1001,7 @@ class BertForSequenceClassification(BertPreTrainedModel):
                 loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
             outputs = (loss,) + outputs
 
-        return outputs  # (loss), logits, (hidden_states), (attentions)
+        return outputs,cls_rep  # (loss), logits, (hidden_states), (attentions)
 
 
 @add_start_docstrings("""Bert Model with a multiple choice classification head on top (a linear layer on top of
