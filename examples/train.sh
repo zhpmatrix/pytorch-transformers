@@ -2,17 +2,17 @@ DATA_PATH=/data/share/zhanghaipeng/data/chuangtouribao/event/
 LOG_PATH=/data/share/zhanghaipeng/data/chuangtouribao/event/train/event
 MODEL_PATH=/data/share/zhanghaipeng/data/pt_bert_models
 
-CUDA=3
-BATCH=6
+CUDA=1,2
+BATCH=16
 EPOCH=10
 LR=3e-5
 SAVE_STEPS=100
 EXPR=2
-CKPT_EXPR=1
+#CKPT_EXPR=1
 CUDA_VISIBLE_DEVICES=$CUDA python run_event.py \
 	--data_dir $DATA_PATH \
 	--model_type bert \
-	--model_name_or_path $LOG_PATH/$CKPT_EXPR \
+	--model_name_or_path $MODEL_PATH/bert-base-chinese \
 	--task_name event \
 	--output_dir $LOG_PATH/$EXPR \
 	--do_train \

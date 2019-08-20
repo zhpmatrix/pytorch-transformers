@@ -411,7 +411,47 @@ class EventProcessor(DataProcessor):
         """See base class."""
         return ["0", "1"]
     
-    
+    def anno_to_nl(self,text):
+        """将四个字段转化为自然语言"""
+        target_str = ''
+        tag = 0
+        try:
+            subject_, org_invest_, money_, round_ = text.split('-')
+        except:
+            #Pre-A单独处理
+            special_str = 'Pre-A'
+            start_idx = text.find(special_str)
+            try:
+                subject_, org_invest_, money_ = text[:start_idx - 1].split('-')
+                round_ = text[start_idx:]
+            except:
+                # 处理投资机构中含有'-'的情况
+                import re
+                delimiter_idx =[i.start() for i in re.finditer('-', text)]
+                subject_ = text[:delimiter_idx[0]] 
+                org_invest_ = text[delimiter_idx[-3] + 1: delimiter_idx[-2]]
+                money_ = text[delimiter_idx[-2] + 1: delimiter_idx[-1]]
+                round_ = text[delimiter_idx[-1] + 1:]
+
+        tag_subject = 1 if subject_ != '#' else 0
+        tag_org_invest = 1 if org_invest_ != '#' else 0
+        tag_money = 1 if money_ != '#' else 0
+        tag_round = 1 if round_ != '#' else 0
+        if tag_subject == 1 and tag_org_invest == 0 and tag_money == 1 and tag_round == 1:
+            tag = 1
+            target_str = subject_ + '在' + round_ + '融资' + money_ + '。'
+        if tag_subject == 1 and tag_org_invest == 1 and tag_money == 1 and tag_round == 0:
+            tag = 1
+            target_str = subject_ + '获' + org_invest_ + money_ + '投资。'
+        if tag_subject == 1 and tag_org_invest == 1 and tag_money == 0 and tag_round == 1:
+            tag = 1
+            target_str = subject_ + '在' + round_ + '的投资机构是' + org_invest_ + '。'
+        if tag_subject == 1 and tag_org_invest == 1 and tag_money == 1 and tag_round == 1:
+            tag = 1
+            target_str = subject_ + '在' + round_ + '融资' + money_ + '，' + '由' + org_invest_ + '投资' + '。'
+        return tag, target_str
+
+
     def _create_examples(self, lines, set_type):
         """Creates examples for the training and dev sets."""
         examples = []
@@ -419,11 +459,13 @@ class EventProcessor(DataProcessor):
             example_ = json.loads(line[0])
             text = example_['text']
             anno_label = example_['anno_label']
-            text_a = anno_label + '。'+text
             label = str(example_['cls_label'])
             guid = "%s-%s-%s-%s" % (set_type, text, anno_label, label)
+            tag, text_a = self.anno_to_nl(anno_label)
+            if tag == 0:#过滤不符合模版的example
+                continue
             examples.append(
-                InputExample(guid=guid, text_a=text_a, label=label))
+                InputExample(guid=guid, text_a=text_a, text_b = text, label=label))
         return examples
 
 

@@ -171,6 +171,22 @@ def train(args, train_dataset, model, tokenizer):
 
     return global_step, tr_loss / global_step
 
+def get_cls_representation(cls_reps, preds, number=1000):
+    X = []
+    y = []
+    for i in range(number):
+        X.append(cls_reps[i].take(preds[i], axis = 0))
+        y.append(preds[i])
+    
+    X = np.array(X)
+    y = np.array(y)
+    np.save('X.npy', X)
+    np.save('y.npy', y)
+    X_ = np.load('X.npy')
+    y_ = np.load('y.npy')
+    import pdb;pdb.set_trace()
+    return True
+    
 
 def evaluate(args, model, tokenizer, prefix=""):
     # Loop to handle MNLI double evaluation (matched, mis-matched)
@@ -179,7 +195,7 @@ def evaluate(args, model, tokenizer, prefix=""):
 
     results = {}
     for eval_task, eval_output_dir in zip(eval_task_names, eval_outputs_dirs):
-        eval_dataset = load_and_cache_examples(args, eval_task, tokenizer, state=1)
+        eval_dataset,eval_examples = load_and_cache_examples(args, eval_task, tokenizer, state=1)
 
         if not os.path.exists(eval_output_dir) and args.local_rank in [-1, 0]:
             os.makedirs(eval_output_dir)
@@ -196,6 +212,7 @@ def evaluate(args, model, tokenizer, prefix=""):
         eval_loss = 0.0
         nb_eval_steps = 0
         preds = None
+        cls_reps = None
         out_label_ids = None
         for batch in tqdm(eval_dataloader, desc="Evaluating"):
             model.eval()
@@ -206,16 +223,18 @@ def evaluate(args, model, tokenizer, prefix=""):
                           'attention_mask': batch[1],
                           'token_type_ids': batch[2] if args.model_type in ['bert', 'xlnet'] else None,  # XLM don't use segment_ids
                           'labels':         batch[3]}
+                #outputs,cls_rep = model(**inputs)
                 outputs = model(**inputs)
                 tmp_eval_loss, logits = outputs[:2]
-
                 eval_loss += tmp_eval_loss.mean().item()
             nb_eval_steps += 1
             if preds is None:
                 preds = logits.detach().cpu().numpy()
+                #cls_reps = cls_rep.detach().cpu().numpy()
                 out_label_ids = inputs['labels'].detach().cpu().numpy()
             else:
                 preds = np.append(preds, logits.detach().cpu().numpy(), axis=0)
+                #cls_reps = np.append(cls_reps, cls_rep.detach().cpu().numpy(), axis=0)
                 out_label_ids = np.append(out_label_ids, inputs['labels'].detach().cpu().numpy(), axis=0)
 
         eval_loss = eval_loss / nb_eval_steps
@@ -223,6 +242,7 @@ def evaluate(args, model, tokenizer, prefix=""):
             preds = np.argmax(preds, axis=1)
         elif args.output_mode == "regression":
             preds = np.squeeze(preds)
+        #get_cls_representation(cls_reps, preds, number=1000)
         result = compute_metrics(eval_task, preds, out_label_ids)
         results.update(result)
 

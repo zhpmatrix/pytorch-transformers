@@ -7,6 +7,11 @@ def load_data():
     X,y = digits.data, digits.target
     return X,y
 
+def load_data_(data_dir='event/'):
+    X = np.load(data_dir+'/X.npy')
+    y = np.load(data_dir+'/y.npy')
+    return X, y
+
 def transform(X):
     tsne = manifold.TSNE(n_components=2, init='pca', random_state=666)
     X_tsne = tsne.fit_transform(X)
@@ -26,6 +31,7 @@ def show(X,y):
 
 if __name__ == '__main__':
     X,y = load_data()
+    X,y = load_data_()
     X_tsne = transform(X)
     X_tsne_norm = norm(X_tsne)
     show(X_tsne_norm, y)
