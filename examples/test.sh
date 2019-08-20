@@ -7,8 +7,8 @@ BATCH=8
 EPOCH=3
 LR=3e-5
 SAVE_STEPS=100
-EXPR=1
-CKPT_STEP=1800
+EXPR=2
+CKPT_STEP=2000
 CUDA_VISIBLE_DEVICES=$CUDA python run_event.py \
 	--data_dir $DATA_PATH \
 	--model_type bert \

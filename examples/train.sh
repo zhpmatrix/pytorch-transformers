@@ -2,12 +2,12 @@ DATA_PATH=/data/share/zhanghaipeng/data/chuangtouribao/event/
 LOG_PATH=/data/share/zhanghaipeng/data/chuangtouribao/event/train/event
 MODEL_PATH=/data/share/zhanghaipeng/data/pt_bert_models
 
-CUDA=1,2
-BATCH=16
+CUDA=3
+BATCH=8
 EPOCH=10
 LR=3e-5
-SAVE_STEPS=100
-EXPR=3
+SAVE_STEPS=1000
+EXPR=4
 #CKPT_EXPR=1
 CUDA_VISIBLE_DEVICES=$CUDA python run_event.py \
 	--data_dir $DATA_PATH \

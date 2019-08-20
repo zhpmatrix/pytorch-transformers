@@ -1,10 +1,10 @@
-# coding=utf-8
-# Copyright 2018 The Google AI Language Team Authors and The HuggingFace Inc. team.
-# Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+## coding=utf-8
+## Copyright 2018 The Google AI Language Team Authors and The HuggingFace Inc. team.
+## Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
+##
+## Licensed under the Apache License, Version 2.0 (the "License");
+## you may not use this file except in compliance with the License.
+## You may obtain a copy of the License at
 #
 #     http://www.apache.org/licenses/LICENSE-2.0
 #
@@ -104,6 +104,14 @@ def train(args, train_dataset, model, tokenizer):
     global_step = 0
     tr_loss, logging_loss = 0.0, 0.0
     model.zero_grad()
+    
+    # 控制模型可以fine-tuning的层数(Top->Bottom)
+    freeze_layer_num = 6
+    prefix = 'encoder'
+    for name, param in model.named_parameters():
+        if  name.split('.')[1] == prefix and int(name.split('.')[3])  < freeze_layer_num:   
+            param.requires_grad = False
+    
     train_iterator = trange(int(args.num_train_epochs), desc="Epoch", disable=args.local_rank not in [-1, 0])
     set_seed(args)  # Added here for reproductibility (even between python 2 and 3)
     for _ in train_iterator:
@@ -261,7 +269,7 @@ def test(args, model, tokenizer, prefix=""):
 
     results = {}
     for eval_task, eval_output_dir in zip(eval_task_names, eval_outputs_dirs):
-        eval_dataset, eval_examples = load_and_cache_examples(args, eval_task, tokenizer, state=2)
+        eval_dataset= load_and_cache_examples(args, eval_task, tokenizer, state=2)
 
         if not os.path.exists(eval_output_dir) and args.local_rank in [-1, 0]:
             os.makedirs(eval_output_dir)
@@ -307,16 +315,16 @@ def test(args, model, tokenizer, prefix=""):
             preds = np.squeeze(preds)
         
         output_eval_file = os.path.join(eval_output_dir, "eval_results.txt")
-        predictions = get_predictions(preds, out_label_ids, eval_examples, output_eval_file)
-        results.update(predictions)
+        #predictions = get_predictions(preds, out_label_ids, eval_examples, output_eval_file)
+        #results.update(predictions)
         
-        #result = compute_metrics(eval_task, preds, out_label_ids)
-        #results.update(result)
-        #with open(output_eval_file, "w") as writer:
-        #    logger.info("***** Eval results {} *****".format(prefix))
-        #    for key in sorted(result.keys()):
-        #        logger.info("  %s = %s", key, str(result[key]))
-        #        writer.write("%s = %s\n" % (key, str(result[key])))
+        result = compute_metrics(eval_task, preds, out_label_ids)
+        results.update(result)
+        with open(output_eval_file, "w") as writer:
+            logger.info("***** Eval results {} *****".format(prefix))
+            for key in sorted(result.keys()):
+                logger.info("  %s = %s", key, str(result[key]))
+                writer.write("%s = %s\n" % (key, str(result[key])))
 
     return results
 
@@ -581,7 +589,5 @@ def main():
             results.update(result)
 
     return results
-
-
 if __name__ == "__main__":
     main()

@@ -7,7 +7,7 @@ BATCH=16
 EPOCH=3
 LR=3e-5
 SAVE_STEPS=100
-EXPR=2
+EXPR=4
 CKPT_STEP=$1
 CUDA_VISIBLE_DEVICES=$CUDA python run_event.py \
 	--data_dir $DATA_PATH \
