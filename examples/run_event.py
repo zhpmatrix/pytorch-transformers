@@ -195,7 +195,7 @@ def evaluate(args, model, tokenizer, prefix=""):
 
     results = {}
     for eval_task, eval_output_dir in zip(eval_task_names, eval_outputs_dirs):
-        eval_dataset,eval_examples = load_and_cache_examples(args, eval_task, tokenizer, state=1)
+        eval_dataset = load_and_cache_examples(args, eval_task, tokenizer, state=1)
 
         if not os.path.exists(eval_output_dir) and args.local_rank in [-1, 0]:
             os.makedirs(eval_output_dir)
@@ -371,7 +371,7 @@ def load_and_cache_examples(args, task, tokenizer, state=0):
         all_label_ids = torch.tensor([f.label_id for f in features], dtype=torch.float)
 
     dataset = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids)
-    return dataset, examples
+    return dataset
 
 
 def main():
