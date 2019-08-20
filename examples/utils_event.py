@@ -451,10 +451,10 @@ class EventProcessor(DataProcessor):
             target_str = subject_ + '在' + round_ + '融资' + money_ + '，' + '由' + org_invest_ + '投资' + '。'
         return tag, target_str
 
-
     def _create_examples(self, lines, set_type):
         """Creates examples for the training and dev sets."""
         examples = []
+        label_dict = {}
         for (i, line) in enumerate(lines):
             example_ = json.loads(line[0])
             text = example_['text']
@@ -464,6 +464,10 @@ class EventProcessor(DataProcessor):
             tag, text_a = self.anno_to_nl(anno_label)
             if tag == 0:#过滤不符合模版的example
                 continue
+            if label not in label_dict.keys():
+                label_dict[label] = 1
+            else:
+                label_dict[label] += 1
             examples.append(
                 InputExample(guid=guid, text_a=text_a, text_b = text, label=label))
         return examples
@@ -564,7 +568,7 @@ def convert_examples_to_features(examples, label_list, max_seq_length,
         else:
             raise KeyError(output_mode)
 
-        if ex_index < 5:
+        if ex_index < 100000:# 输出所有样本(MAX_NUM=100000)
             logger.info("*** Example ***")
             logger.info("guid: %s" % (example.guid))
             logger.info("tokens: %s" % " ".join(

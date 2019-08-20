@@ -7,7 +7,7 @@ BATCH=16
 EPOCH=10
 LR=3e-5
 SAVE_STEPS=100
-EXPR=2
+EXPR=3
 #CKPT_EXPR=1
 CUDA_VISIBLE_DEVICES=$CUDA python run_event.py \
 	--data_dir $DATA_PATH \
@@ -20,5 +20,4 @@ CUDA_VISIBLE_DEVICES=$CUDA python run_event.py \
 	--learning_rate $LR \
 	--per_gpu_train_batch_size $BATCH \
 	--num_train_epochs $EPOCH \
-	--save_steps $SAVE_STEPS
-	
+	--save_steps $SAVE_STEPS	
