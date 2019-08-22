@@ -18,6 +18,7 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 
 import collections
 import logging
+import six
 import os
 import unicodedata
 from io import open
@@ -63,7 +64,7 @@ PRETRAINED_POSITIONAL_EMBEDDINGS_SIZES = {
     'bert-base-cased-finetuned-mrpc': 512,
 }
 
-def load_vocab(vocab_file):
+def load_vocab_(vocab_file):
     """Loads a vocabulary file into a dictionary."""
     vocab = collections.OrderedDict()
     with open(vocab_file, "r", encoding="utf-8") as reader:
@@ -71,6 +72,39 @@ def load_vocab(vocab_file):
     for index, token in enumerate(tokens):
         vocab[token] = index
         index += 1
+    return vocab
+
+def convert_to_unicode(text):
+  """Converts `text` to Unicode (if it's not already), assuming utf-8 input."""
+  if six.PY3:
+    if isinstance(text, str):
+      return text
+    elif isinstance(text, bytes):
+      return text.decode("utf-8", "ignore")
+    else:
+      raise ValueError("Unsupported string type: %s" % (type(text)))
+  elif six.PY2:
+    if isinstance(text, str):
+      return text.decode("utf-8", "ignore")
+    elif isinstance(text, unicode):
+      return text
+    else:
+      raise ValueError("Unsupported string type: %s" % (type(text)))
+  else:
+    raise ValueError("Not running on Python2 or Python 3?")
+
+def load_vocab(vocab_file):
+    """Loads a vocabulary file into a dictionary."""
+    vocab = collections.OrderedDict()
+    index = 0
+    with open(vocab_file, "r", encoding="utf-8") as reader:
+        while True:
+            token = convert_to_unicode(reader.readline())
+            if not token:
+                break
+            token = token.strip()
+            vocab[token] = index
+            index += 1
     return vocab
 
 
@@ -155,7 +189,16 @@ class BertTokenizer(PreTrainedTokenizer):
 
     def _convert_token_to_id(self, token):
         """ Converts a token (str/unicode) in an id using the vocab. """
-        return self.vocab.get(token, self.vocab.get(self.unk_token))
+        input_id_ = self.vocab.get(token, self.vocab.get(self.unk_token))
+        fix = 0
+        if fix:
+            special_line_start = 344
+            special_line_end = 13504
+            if input_id_ > special_line_start and input_id_ < special_line_end:
+                input_id_ -= 1
+            if input_id_ >= special_line_end:
+                input_id_ -= 2
+        return input_id_
 
     def _convert_id_to_token(self, index):
         """Converts an index (integer) in a token (string/unicode) using the vocab."""
