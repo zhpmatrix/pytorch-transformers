@@ -106,12 +106,11 @@ def train(args, train_dataset, model, tokenizer):
     model.zero_grad()
     
     # 控制模型可以fine-tuning的层数(Top->Bottom)
-    freeze_layer_num = 6
+    freeze_layer_num = 0
     prefix = 'encoder'
     for name, param in model.named_parameters():
-        if  name.split('.')[1] == prefix and int(name.split('.')[3])  < freeze_layer_num:   
+        if  name.split('.')[1] == prefix and int(name.split('.')[3])  < freeze_layer_num:
             param.requires_grad = False
-    
     train_iterator = trange(int(args.num_train_epochs), desc="Epoch", disable=args.local_rank not in [-1, 0])
     set_seed(args)  # Added here for reproductibility (even between python 2 and 3)
     for _ in train_iterator:
