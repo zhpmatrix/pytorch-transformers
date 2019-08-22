@@ -401,7 +401,6 @@ class PreTrainedModel(nn.Module):
 
         # Instantiate model.
         model = cls(config)
-
         if state_dict is None and not from_tf:
             state_dict = torch.load(resolved_archive_file, map_location='cpu')
         if from_tf:
@@ -432,7 +431,6 @@ class PreTrainedModel(nn.Module):
         state_dict = state_dict.copy()
         if metadata is not None:
             state_dict._metadata = metadata
-
         def load(module, prefix=''):
             local_metadata = {} if metadata is None else metadata.get(prefix[:-1], {})
             module._load_from_state_dict(
@@ -459,7 +457,6 @@ class PreTrainedModel(nn.Module):
         if len(error_msgs) > 0:
             raise RuntimeError('Error(s) in loading state_dict for {}:\n\t{}'.format(
                                model.__class__.__name__, "\n\t".join(error_msgs)))
-
         if hasattr(model, 'tie_weights'):
             model.tie_weights()  # make sure word embedding weights are still tied
 

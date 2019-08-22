@@ -979,7 +979,7 @@ class BertForSequenceClassification(BertPreTrainedModel):
 
         logits = self.classifier(pooled_output)
         
-        # 添加获取类别feature representation
+        # 添加获取类别feature representation，需要结合不同阶段，修改return值
         batch_size, cls_num = logits.shape[0],logits.shape[1]
         po_unsqueeze = torch.unsqueeze(pooled_output, 1)
         po_repeat = po_unsqueeze.repeat(1,cls_num, 1)
@@ -1001,7 +1001,8 @@ class BertForSequenceClassification(BertPreTrainedModel):
                 loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
             outputs = (loss,) + outputs
 
-        return outputs,cls_rep  # (loss), logits, (hidden_states), (attentions)
+        return outputs  # (loss), logits, (hidden_states), (attentions)
+        #return outputs,cls_rep  # (loss), logits, (hidden_states), (attentions)
 
 
 @add_start_docstrings("""Bert Model with a multiple choice classification head on top (a linear layer on top of

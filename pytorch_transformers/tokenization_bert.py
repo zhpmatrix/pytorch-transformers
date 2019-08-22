@@ -64,7 +64,7 @@ PRETRAINED_POSITIONAL_EMBEDDINGS_SIZES = {
     'bert-base-cased-finetuned-mrpc': 512,
 }
 
-def load_vocab_(vocab_file):
+def load_vocab(vocab_file):
     """Loads a vocabulary file into a dictionary."""
     vocab = collections.OrderedDict()
     with open(vocab_file, "r", encoding="utf-8") as reader:
@@ -93,7 +93,7 @@ def convert_to_unicode(text):
   else:
     raise ValueError("Not running on Python2 or Python 3?")
 
-def load_vocab(vocab_file):
+def load_vocab_(vocab_file):
     """Loads a vocabulary file into a dictionary."""
     vocab = collections.OrderedDict()
     index = 0
@@ -164,6 +164,9 @@ class BertTokenizer(PreTrainedTokenizer):
                 "Can't find a vocabulary file at path '{}'. To load the vocabulary from a Google pretrained "
                 "model use `tokenizer = BertTokenizer.from_pretrained(PRETRAINED_MODEL_NAME)`".format(vocab_file))
         self.vocab = load_vocab(vocab_file)
+        debug = 1
+        if debug:
+            import pdb;pdb.set_trace()
         self.ids_to_tokens = collections.OrderedDict(
             [(ids, tok) for tok, ids in self.vocab.items()])
         self.do_basic_tokenize = do_basic_tokenize
