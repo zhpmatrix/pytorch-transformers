@@ -130,9 +130,6 @@ class BertTokenizer(PreTrainedTokenizer):
                 "Can't find a vocabulary file at path '{}'. To load the vocabulary from a Google pretrained "
                 "model use `tokenizer = BertTokenizer.from_pretrained(PRETRAINED_MODEL_NAME)`".format(vocab_file))
         self.vocab = load_vocab(vocab_file)
-        debug = 1
-        if debug:
-            import pdb;pdb.set_trace()
         self.ids_to_tokens = collections.OrderedDict(
             [(ids, tok) for tok, ids in self.vocab.items()])
         self.do_basic_tokenize = do_basic_tokenize
@@ -158,16 +155,7 @@ class BertTokenizer(PreTrainedTokenizer):
 
     def _convert_token_to_id(self, token):
         """ Converts a token (str/unicode) in an id using the vocab. """
-        input_id_ = self.vocab.get(token, self.vocab.get(self.unk_token))
-        fix = 0
-        if fix:
-            special_line_start = 344
-            special_line_end = 13504
-            if input_id_ > special_line_start and input_id_ < special_line_end:
-                input_id_ -= 1
-            if input_id_ >= special_line_end:
-                input_id_ -= 2
-        return input_id_
+        return self.vocab.get(token, self.vocab.get(self.unk_token))
 
     def _convert_id_to_token(self, index):
         """Converts an index (integer) in a token (string/unicode) using the vocab."""
