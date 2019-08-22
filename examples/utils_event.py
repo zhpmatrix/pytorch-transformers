@@ -412,6 +412,26 @@ class EventProcessor(DataProcessor):
         return ["0", "1"]
     
     def anno_to_nl(self,text):
+        try:
+            subject_, org_invest_, money_, round_ = text.split('-')
+        except:
+            #Pre-A单独处理
+            special_str = 'Pre-A'
+            start_idx = text.find(special_str)
+            try:
+                subject_, org_invest_, money_ = text[:start_idx - 1].split('-')
+                round_ = text[start_idx:]
+            except:
+                # 处理投资机构中含有'-'的情况
+                import re
+                delimiter_idx =[i.start() for i in re.finditer('-', text)]
+                subject_ = text[:delimiter_idx[0]] 
+                org_invest_ = text[delimiter_idx[-3] + 1: delimiter_idx[-2]]
+                money_ = text[delimiter_idx[-2] + 1: delimiter_idx[-1]]
+                round_ = text[delimiter_idx[-1] + 1:]
+        return 1, subject_ + '完成' + money_ + round_ + '融资，投资方为' + org_invest_
+    
+    def anno_to_nl_(self,text):
         """将四个字段转化为自然语言"""
         target_str = ''
         tag = 0
@@ -493,7 +513,7 @@ def convert_examples_to_features(examples, label_list, max_seq_length,
     for (ex_index, example) in enumerate(examples):
         if ex_index % 10000 == 0:
             logger.info("Writing example %d of %d" % (ex_index, len(examples)))
-
+        
         tokens_a = tokenizer.tokenize(example.text_a)
 
         tokens_b = None
@@ -539,7 +559,7 @@ def convert_examples_to_features(examples, label_list, max_seq_length,
         else:
             tokens = [cls_token] + tokens
             segment_ids = [cls_token_segment_id] + segment_ids
-
+        #import pdb;pdb.set_trace()
         input_ids = tokenizer.convert_tokens_to_ids(tokens)
 
         # The mask has 1 for real tokens and 0 for padding tokens. Only real
