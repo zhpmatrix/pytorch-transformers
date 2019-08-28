@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 class InputExample(object):
     """A single training/test example for simple sequence classification."""
 
-    def __init__(self, guid, text_a, text_b=None, label=None):
+    def __init__(self, guid, text_a, apos=None, text_b=None, bpos=None, label=None):
         """Constructs a InputExample.
 
         Args:
@@ -48,17 +48,22 @@ class InputExample(object):
         """
         self.guid = guid
         self.text_a = text_a
+        self.apos = apos
         self.text_b = text_b
+        self.bpos = bpos
         self.label = label
 
 
 class InputFeatures(object):
     """A single set of features of data."""
 
-    def __init__(self, input_ids, input_mask, segment_ids, label_id):
+    def __init__(self, input_ids, input_mask, segment_ids, pos_ids, pos_mask, pos_segment_ids, label_id):
         self.input_ids = input_ids
         self.input_mask = input_mask
         self.segment_ids = segment_ids
+        self.pos_ids = pos_ids
+        self.pos_mask = pos_mask
+        self.pos_segment_ids = pos_segment_ids
         self.label_id = label_id
 
 
@@ -470,18 +475,113 @@ class EventProcessor(DataProcessor):
             tag = 1
             target_str = subject_ + '在' + round_ + '融资' + money_ + '，' + '由' + org_invest_ + '投资' + '。'
         return tag, target_str
+    
+    def get_all_entity(self,text):
+        """获取所有实体"""
+        entity_num = 4
+        target_list = [''] * entity_num
+        tag = 0
+        try:
+            subject_, org_invest_, money_, round_ = text.split('-')
+        except:
+            #Pre-A单独处理
+            special_str = 'Pre-A'
+            start_idx = text.find(special_str)
+            try:
+                subject_, org_invest_, money_ = text[:start_idx - 1].split('-')
+                round_ = text[start_idx:]
+            except:
+                # 处理投资机构中含有'-'的情况
+                import re
+                delimiter_idx =[i.start() for i in re.finditer('-', text)]
+                subject_ = text[:delimiter_idx[0]] 
+                org_invest_ = text[delimiter_idx[-3] + 1: delimiter_idx[-2]]
+                money_ = text[delimiter_idx[-2] + 1: delimiter_idx[-1]]
+                round_ = text[delimiter_idx[-1] + 1:]
 
+        tag_subject = 1 if subject_ != '#' else 0
+        tag_org_invest = 1 if org_invest_ != '#' else 0
+        tag_money = 1 if money_ != '#' else 0
+        tag_round = 1 if round_ != '#' else 0
+        if tag_subject == 1 and tag_org_invest == 0 and tag_money == 1 and tag_round == 1:
+            tag = 1
+            target_list[0] = subject_
+            target_list[1] = round_
+            target_list[2] = money_
+        if tag_subject == 1 and tag_org_invest == 1 and tag_money == 1 and tag_round == 0:
+            tag = 1
+            target_str = subject_ + '获' + org_invest_ + money_ + '投资。'
+            target_list[0] = subject_
+            target_list[2] = money_
+            target_list[3] = org_invest_
+        if tag_subject == 1 and tag_org_invest == 1 and tag_money == 0 and tag_round == 1:
+            tag = 1
+            target_str = subject_ + '在' + round_ + '的投资机构是' + org_invest_ + '。'
+            target_list[0] = subject_
+            target_list[1] = round_
+            target_list[3] = org_invest_
+        if tag_subject == 1 and tag_org_invest == 1 and tag_money == 1 and tag_round == 1:
+            tag = 1
+            target_str = subject_ + '在' + round_ + '融资' + money_ + '，' + '由' + org_invest_ + '投资' + '。'
+            target_list[0] = subject_
+            target_list[1] = round_
+            target_list[2] = money_
+            target_list[3] = org_invest_
+        return tag, target_list
+    
+    def get_model(self):
+        from simplex_sdk import SimplexClient
+        from pyltp import Segmentor
+        from pyltp import Postagger
+        LTP_MODEL_PATH = '/data/share/zhanghaipeng/data/ltp_model/'
+        EULER_SERVICE_NAME = 'general-pos-ideal'
+        model = SimplexClient(EULER_SERVICE_NAME)
+        segmentor = Segmentor()
+        postagger = Postagger()
+        segmentor.load(LTP_MODEL_PATH+'cws.model')
+        postagger.load(LTP_MODEL_PATH+'pos.model')
+        return segmentor, postagger
+    
+    def get_pos_list_based_euler(self, model, text):   
+        text_pos_list = []
+        pos = model.predict([text])[0]['pos']
+        for pos_ in pos:
+            tag, offset, length = pos_['tag'], pos_['offset'], pos_['length']
+            for i in range(offset, offset + length):
+                text_pos_list.append(tag)
+        return pos,text_pos_list
+    
+    def get_pos_list_based_ltp(self, segmentor, postagger, text):   
+        text_pos_list = []
+        words = segmentor.segment(text)
+        poses  = postagger.postag(words)
+        for word, pos in zip(words, poses):
+            text_pos_list.extend(['['+pos+']']*len(word))
+        assert(len(text) == len(text_pos_list))
+        return text_pos_list
+    
+    def text_filter(self,text):
+        text = text.strip()
+        text = text.replace(' ','')
+        return text
+    
     def _create_examples(self, lines, set_type):
         """Creates examples for the training and dev sets."""
         examples = []
         label_dict = {}
+        segmentor, postagger = self.get_model()
         for (i, line) in enumerate(lines):
             example_ = json.loads(line[0])
-            text = example_['text']
+            text_b = example_['text']
             anno_label = example_['anno_label']
             label = str(example_['cls_label'])
-            guid = "%s-%s-%s-%s" % (set_type, text, anno_label, label)
-            tag, text_a = self.anno_to_nl(anno_label)
+            guid = "%s-%s-%s-%s" % (set_type, text_b, anno_label, label)
+            tag, text_a = self.anno_to_nl_(anno_label)
+            #tag, text_a = self.get_all_entity(anno_label)
+            text_a = self.text_filter(text_a)
+            text_b = self.text_filter(text_b)
+            apos = self.get_pos_list_based_ltp(segmentor, postagger, text_a)
+            bpos = self.get_pos_list_based_ltp(segmentor, postagger, text_b)
             if tag == 0:#过滤不符合模版的example
                 continue
             if label not in label_dict.keys():
@@ -489,7 +589,7 @@ class EventProcessor(DataProcessor):
             else:
                 label_dict[label] += 1
             examples.append(
-                InputExample(guid=guid, text_a=text_a, text_b = text, label=label))
+                InputExample(guid=guid, text_a=text_a, apos = apos, text_b = text_b, bpos = bpos, label=label))
         return examples
 
 
@@ -513,16 +613,15 @@ def convert_examples_to_features(examples, label_list, max_seq_length,
     for (ex_index, example) in enumerate(examples):
         if ex_index % 10000 == 0:
             logger.info("Writing example %d of %d" % (ex_index, len(examples)))
-        
         tokens_a = tokenizer.tokenize(example.text_a)
-
-        tokens_b = None
+        #tokens_b = None
         if example.text_b:
             tokens_b = tokenizer.tokenize(example.text_b)
             # Modifies `tokens_a` and `tokens_b` in place so that the total
             # length is less than the specified length.
             # Account for [CLS], [SEP], [SEP] with "- 3"
             _truncate_seq_pair(tokens_a, tokens_b, max_seq_length - 3)
+            _truncate_signal_pair(example.apos, example.bpos, max_seq_length - 3)
         else:
             # Account for [CLS] and [SEP] with "- 2"
             if len(tokens_a) > max_seq_length - 2:
@@ -547,39 +646,60 @@ def convert_examples_to_features(examples, label_list, max_seq_length,
         # used as as the "sentence vector". Note that this only makes sense because
         # the entire model is fine-tuned.
         tokens = tokens_a + [sep_token]
+        poses = example.apos + [sep_token]
         segment_ids = [sequence_a_segment_id] * len(tokens)
-
+        pos_segment_ids = [sequence_a_segment_id] * len(poses)
         if tokens_b:
             tokens += tokens_b + [sep_token]
+            poses += example.bpos + [sep_token]
             segment_ids += [sequence_b_segment_id] * (len(tokens_b) + 1)
+            pos_segment_ids += [sequence_b_segment_id] * (len(example.bpos) + 1)
 
         if cls_token_at_end:
             tokens = tokens + [cls_token]
+            poses = poses + [cls_token]
             segment_ids = segment_ids + [cls_token_segment_id]
+            pos_segment_ids = pos_segment_ids + [cls_token_segment_id]
         else:
             tokens = [cls_token] + tokens
+            poses = [cls_token] + poses
             segment_ids = [cls_token_segment_id] + segment_ids
-        #import pdb;pdb.set_trace()
+            pos_segment_ids = [cls_token_segment_id] + pos_segment_ids
+        
         input_ids = tokenizer.convert_tokens_to_ids(tokens)
-
+        pos_ids = tokenizer.convert_tokens_to_ids(poses)
+    
         # The mask has 1 for real tokens and 0 for padding tokens. Only real
         # tokens are attended to.
         input_mask = [1 if mask_padding_with_zero else 0] * len(input_ids)
+        pos_mask = [1 if mask_padding_with_zero else 0] * len(pos_ids)
 
         # Zero-pad up to the sequence length.
         padding_length = max_seq_length - len(input_ids)
+        pos_padding_length = max_seq_length - len(pos_ids)
+        
         if pad_on_left:
             input_ids = ([pad_token] * padding_length) + input_ids
+            pos_ids = ([pad_token] * pos_padding_length) + pos_ids
             input_mask = ([0 if mask_padding_with_zero else 1] * padding_length) + input_mask
+            pos_mask = ([0 if mask_padding_with_zero else 1] * pos_padding_length) + pos_mask
             segment_ids = ([pad_token_segment_id] * padding_length) + segment_ids
+            pos_segment_ids = ([pad_token_segment_id] * pos_padding_length) + pos_segment_ids
         else:
             input_ids = input_ids + ([pad_token] * padding_length)
+            pos_ids = pos_ids + ([pad_token] * pos_padding_length)
             input_mask = input_mask + ([0 if mask_padding_with_zero else 1] * padding_length)
+            pos_mask = pos_mask + ([0 if mask_padding_with_zero else 1] * pos_padding_length)
             segment_ids = segment_ids + ([pad_token_segment_id] * padding_length)
-
+            pos_segment_ids = pos_segment_ids + ([pad_token_segment_id] * pos_padding_length)
+        
         assert len(input_ids) == max_seq_length
         assert len(input_mask) == max_seq_length
         assert len(segment_ids) == max_seq_length
+        
+        assert len(pos_ids) == max_seq_length
+        assert len(pos_mask) == max_seq_length
+        assert len(pos_segment_ids) == max_seq_length
 
         if output_mode == "classification":
             label_id = label_map[example.label]
@@ -596,17 +716,38 @@ def convert_examples_to_features(examples, label_list, max_seq_length,
             logger.info("input_ids: %s" % " ".join([str(x) for x in input_ids]))
             logger.info("input_mask: %s" % " ".join([str(x) for x in input_mask]))
             logger.info("segment_ids: %s" % " ".join([str(x) for x in segment_ids]))
+            logger.info("pos_ids: %s" % " ".join([str(x) for x in pos_ids]))
+            logger.info("pos_mask: %s" % " ".join([str(x) for x in pos_mask]))
+            logger.info("pos_segment_ids: %s" % " ".join([str(x) for x in pos_segment_ids]))
             logger.info("label: %s (id = %d)" % (example.label, label_id))
-
         features.append(
                 InputFeatures(input_ids=input_ids,
                               input_mask=input_mask,
                               segment_ids=segment_ids,
+                              pos_ids = pos_ids,
+                              pos_mask = pos_mask,
+                              pos_segment_ids = pos_segment_ids,
                               label_id=label_id))
     return features
 
 
 def _truncate_seq_pair(tokens_a, tokens_b, max_length):
+    """Truncates a sequence pair in place to the maximum length."""
+
+    # This is a simple heuristic which will always truncate the longer sequence
+    # one token at a time. This makes more sense than truncating an equal percent
+    # of tokens from each, since if one sequence is very short then each token
+    # that's truncated likely contains more information than a longer sequence.
+    while True:
+        total_length = len(tokens_a) + len(tokens_b)
+        if total_length <= max_length:
+            break
+        if len(tokens_a) > len(tokens_b):
+            tokens_a.pop()
+        else:
+            tokens_b.pop()
+
+def _truncate_signal_pair(tokens_a, tokens_b, max_length):
     """Truncates a sequence pair in place to the maximum length."""
 
     # This is a simple heuristic which will always truncate the longer sequence
