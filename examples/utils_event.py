@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 class InputExample(object):
     """A single training/test example for simple sequence classification."""
 
-    def __init__(self, guid, text_a, apos=None, text_b=None, bpos=None, label=None):
+    def __init__(self, guid, text_a, apos=None, aarc=None, text_b=None, bpos=None, barc=None, label=None):
         """Constructs a InputExample.
 
         Args:
@@ -49,22 +49,31 @@ class InputExample(object):
         self.guid = guid
         self.text_a = text_a
         self.apos = apos
+        self.aarc = aarc
         self.text_b = text_b
         self.bpos = bpos
+        self.barc = barc
         self.label = label
 
 
 class InputFeatures(object):
     """A single set of features of data."""
 
-    def __init__(self, input_ids, input_mask, segment_ids, pos_ids, pos_mask, pos_segment_ids, label_id):
+    def __init__(self, input_ids, input_mask, segment_ids, pos_ids, pos_mask, pos_segment_ids, arc_rel_ids, arc_rel_mask, arc_rel_segment_ids, arc_idx_ids, arc_idx_mask, arc_idx_segment_ids, label_id):
         self.input_ids = input_ids
         self.input_mask = input_mask
         self.segment_ids = segment_ids
         self.pos_ids = pos_ids
         self.pos_mask = pos_mask
         self.pos_segment_ids = pos_segment_ids
+        self.arc_rel_ids = arc_rel_ids
+        self.arc_rel_mask = arc_rel_mask
+        self.arc_rel_segment_ids = arc_rel_segment_ids
+        self.arc_idx_ids = arc_idx_ids
+        self.arc_idx_mask = arc_idx_mask
+        self.arc_idx_segment_ids = arc_idx_segment_ids
         self.label_id = label_id
+    
 
 
 class DataProcessor(object):
@@ -405,7 +414,7 @@ class EventProcessor(DataProcessor):
     def get_dev_examples(self, data_dir):
         """See base class."""
         return self._create_examples(
-            self._read_tsv(os.path.join(data_dir, "dev.json")), "dev")
+            self._read_tsv(os.path.join(data_dir, "test.json")), "dev")
     
     def get_test_examples(self, data_dir):
         """See base class."""
@@ -533,14 +542,17 @@ class EventProcessor(DataProcessor):
         from simplex_sdk import SimplexClient
         from pyltp import Segmentor
         from pyltp import Postagger
+        from pyltp import Parser
         LTP_MODEL_PATH = '/data/share/zhanghaipeng/data/ltp_model/'
         EULER_SERVICE_NAME = 'general-pos-ideal'
         model = SimplexClient(EULER_SERVICE_NAME)
         segmentor = Segmentor()
         postagger = Postagger()
+        parser = Parser()
         segmentor.load(LTP_MODEL_PATH+'cws.model')
         postagger.load(LTP_MODEL_PATH+'pos.model')
-        return segmentor, postagger
+        parser.load(LTP_MODEL_PATH+'parser.model')
+        return segmentor, postagger, parser
     
     def get_pos_list_based_euler(self, model, text):   
         text_pos_list = []
@@ -551,14 +563,18 @@ class EventProcessor(DataProcessor):
                 text_pos_list.append(tag)
         return pos,text_pos_list
     
-    def get_pos_list_based_ltp(self, segmentor, postagger, text):   
+    def get_pos_list_based_ltp(self, segmentor, postagger, parser, text):   
         text_pos_list = []
+        text_arc_list = []
         words = segmentor.segment(text)
         poses  = postagger.postag(words)
         for word, pos in zip(words, poses):
             text_pos_list.extend(['['+pos+']']*len(word))
         assert(len(text) == len(text_pos_list))
-        return text_pos_list
+        arcs = parser.parse(words, poses)
+        for arc in arcs:
+            text_arc_list.append((arc.head, '['+arc.relation+']'))
+        return text_pos_list, text_arc_list
     
     def text_filter(self,text):
         text = text.strip()
@@ -569,7 +585,7 @@ class EventProcessor(DataProcessor):
         """Creates examples for the training and dev sets."""
         examples = []
         label_dict = {}
-        segmentor, postagger = self.get_model()
+        segmentor, postagger, parser = self.get_model()
         for (i, line) in enumerate(lines):
             example_ = json.loads(line[0])
             text_b = example_['text']
@@ -580,8 +596,8 @@ class EventProcessor(DataProcessor):
             #tag, text_a = self.get_all_entity(anno_label)
             text_a = self.text_filter(text_a)
             text_b = self.text_filter(text_b)
-            apos = self.get_pos_list_based_ltp(segmentor, postagger, text_a)
-            bpos = self.get_pos_list_based_ltp(segmentor, postagger, text_b)
+            apos, aarc = self.get_pos_list_based_ltp(segmentor, postagger, parser, text_a)
+            bpos, barc = self.get_pos_list_based_ltp(segmentor, postagger, parser, text_b)
             if tag == 0:#过滤不符合模版的example
                 continue
             if label not in label_dict.keys():
@@ -589,12 +605,27 @@ class EventProcessor(DataProcessor):
             else:
                 label_dict[label] += 1
             examples.append(
-                InputExample(guid=guid, text_a=text_a, apos = apos, text_b = text_b, bpos = bpos, label=label))
+                InputExample(guid=guid, text_a=text_a, apos = apos, aarc=aarc, text_b = text_b, bpos = bpos, barc=barc, label=label))
         return examples
 
-
+class ParserTokenizer:
+    def __init__(self,vocab_path = '/data/share/zhanghaipeng/data/pt_bert_models/bert-base-chinese/parser_vocab.txt'):
+        self.vocab = self.load_vocab(vocab_path)
+    def load_vocab(self, vocab_path):
+        parser_vocab = {}
+        with open(vocab_path, 'r') as reader:
+            for i, id_ in enumerate(reader):
+                parser_vocab[i] = id_.strip()
+        return parser_vocab
+    def convert_tokens_to_ids(self, tokens):
+        id_to_tokens = self.vocab
+        tokens_to_ids = {j:i for i,j in self.vocab.items()}
+        return [tokens_to_ids[token] for token in tokens]
+    def convert_ids_to_tokens(self, ids):
+        return [self.vocab[id_] for id_ in ids]
+    
 def convert_examples_to_features(examples, label_list, max_seq_length,
-                                 tokenizer, output_mode,
+                                 tokenizer, parser_tokenizer, output_mode,
                                  cls_token_at_end=False, pad_on_left=False,
                                  cls_token='[CLS]', sep_token='[SEP]', pad_token=0,
                                  sequence_a_segment_id=0, sequence_b_segment_id=1,
@@ -621,7 +652,8 @@ def convert_examples_to_features(examples, label_list, max_seq_length,
             # length is less than the specified length.
             # Account for [CLS], [SEP], [SEP] with "- 3"
             _truncate_seq_pair(tokens_a, tokens_b, max_seq_length - 3)
-            _truncate_signal_pair(example.apos, example.bpos, max_seq_length - 3)
+            _truncate_pos_pair(example.apos, example.bpos, max_seq_length - 3)
+            _truncate_parser_pair(example.aarc, example.barc, max_seq_length - 3)
         else:
             # Account for [CLS] and [SEP] with "- 2"
             if len(tokens_a) > max_seq_length - 2:
@@ -647,51 +679,94 @@ def convert_examples_to_features(examples, label_list, max_seq_length,
         # the entire model is fine-tuned.
         tokens = tokens_a + [sep_token]
         poses = example.apos + [sep_token]
+        aarc_idx = [str(arc[0]) for arc in example.aarc]
+        aarc_rel = [arc[1] for arc in example.aarc]
+        barc_idx = [str(arc[0]) for arc in example.barc]
+        barc_rel = [arc[1] for arc in example.barc]
+        arc_rel = aarc_rel + [sep_token]
+        arc_idx = aarc_idx + [sep_token]
         segment_ids = [sequence_a_segment_id] * len(tokens)
         pos_segment_ids = [sequence_a_segment_id] * len(poses)
+        arc_rel_segment_ids = [sequence_a_segment_id] * len(arc_rel)
+        arc_idx_segment_ids = [sequence_a_segment_id] * len(arc_idx)
+        
         if tokens_b:
             tokens += tokens_b + [sep_token]
             poses += example.bpos + [sep_token]
+            arc_rel += barc_rel + [sep_token]
+            arc_idx += barc_idx + [sep_token]
             segment_ids += [sequence_b_segment_id] * (len(tokens_b) + 1)
             pos_segment_ids += [sequence_b_segment_id] * (len(example.bpos) + 1)
-
+            arc_rel_segment_ids += [sequence_b_segment_id] * (len(barc_rel) + 1)
+            arc_idx_segment_ids += [sequence_b_segment_id] * (len(barc_idx) + 1)
+            
         if cls_token_at_end:
             tokens = tokens + [cls_token]
             poses = poses + [cls_token]
+            arc_rel  = arc_rel + [cls_token]
+            arc_idx  = arc_idx + [cls_token]
             segment_ids = segment_ids + [cls_token_segment_id]
             pos_segment_ids = pos_segment_ids + [cls_token_segment_id]
+            arc_rel_segment_ids = arc_rel_segment_ids + [cls_token_segment_id]
+            arc_idx_segment_ids = arc_idx_segment_ids + [cls_token_segment_id]
         else:
             tokens = [cls_token] + tokens
             poses = [cls_token] + poses
+            arc_rel = [cls_token] + arc_rel
+            arc_idx = [cls_token] + arc_idx
             segment_ids = [cls_token_segment_id] + segment_ids
             pos_segment_ids = [cls_token_segment_id] + pos_segment_ids
+            arc_rel_segment_ids = [cls_token_segment_id] + arc_rel_segment_ids
+            arc_idx_segment_ids = [cls_token_segment_id] + arc_idx_segment_ids
         
+
         input_ids = tokenizer.convert_tokens_to_ids(tokens)
         pos_ids = tokenizer.convert_tokens_to_ids(poses)
-    
+        arc_rel_ids = tokenizer.convert_tokens_to_ids(arc_rel)
+        arc_idx_ids = parser_tokenizer.convert_tokens_to_ids(arc_idx)
         # The mask has 1 for real tokens and 0 for padding tokens. Only real
         # tokens are attended to.
         input_mask = [1 if mask_padding_with_zero else 0] * len(input_ids)
         pos_mask = [1 if mask_padding_with_zero else 0] * len(pos_ids)
+        arc_rel_mask = [1 if mask_padding_with_zero else 0] * len(arc_rel_ids)
+        arc_idx_mask = [1 if mask_padding_with_zero else 0] * len(arc_idx_ids)
 
         # Zero-pad up to the sequence length.
         padding_length = max_seq_length - len(input_ids)
         pos_padding_length = max_seq_length - len(pos_ids)
+        arc_rel_padding_length = max_seq_length - len(arc_rel_ids)
+        arc_idx_padding_length = max_seq_length - len(arc_idx_ids)
         
         if pad_on_left:
             input_ids = ([pad_token] * padding_length) + input_ids
             pos_ids = ([pad_token] * pos_padding_length) + pos_ids
+            arc_rel_ids = ([pad_token] * arc_rel_padding_length) + arc_rel_ids
+            arc_idx_ids = ([pad_token] * arc_idx_padding_length) + arc_idx_ids
+
             input_mask = ([0 if mask_padding_with_zero else 1] * padding_length) + input_mask
             pos_mask = ([0 if mask_padding_with_zero else 1] * pos_padding_length) + pos_mask
+            arc_rel_mask = ([0 if mask_padding_with_zero else 1] * arc_rel_padding_length) + arc_rel_mask
+            arc_idx_mask = ([0 if mask_padding_with_zero else 1] * arc_idx_padding_length) + arc_idx_mask
+            
             segment_ids = ([pad_token_segment_id] * padding_length) + segment_ids
             pos_segment_ids = ([pad_token_segment_id] * pos_padding_length) + pos_segment_ids
+            arc_rel_segment_ids = ([pad_token_segment_id] * arc_rel_padding_length) + arc_rel_segment_ids
+            arc_idx_segment_ids = ([pad_token_segment_id] * arc_idx_padding_length) + arc_idx_segment_ids
         else:
             input_ids = input_ids + ([pad_token] * padding_length)
             pos_ids = pos_ids + ([pad_token] * pos_padding_length)
+            arc_rel_ids = arc_rel_ids + ([pad_token] * arc_rel_padding_length)
+            arc_idx_ids = arc_idx_ids + ([pad_token] * arc_idx_padding_length)
+            
             input_mask = input_mask + ([0 if mask_padding_with_zero else 1] * padding_length)
             pos_mask = pos_mask + ([0 if mask_padding_with_zero else 1] * pos_padding_length)
+            arc_rel_mask = arc_rel_mask + ([0 if mask_padding_with_zero else 1] * arc_rel_padding_length)
+            arc_idx_mask = arc_idx_mask + ([0 if mask_padding_with_zero else 1] * arc_idx_padding_length)
+            
             segment_ids = segment_ids + ([pad_token_segment_id] * padding_length)
             pos_segment_ids = pos_segment_ids + ([pad_token_segment_id] * pos_padding_length)
+            arc_rel_segment_ids = arc_rel_segment_ids + ([pad_token_segment_id] * arc_rel_padding_length)
+            arc_idx_segment_ids = arc_idx_segment_ids + ([pad_token_segment_id] * arc_idx_padding_length)
         
         assert len(input_ids) == max_seq_length
         assert len(input_mask) == max_seq_length
@@ -700,6 +775,14 @@ def convert_examples_to_features(examples, label_list, max_seq_length,
         assert len(pos_ids) == max_seq_length
         assert len(pos_mask) == max_seq_length
         assert len(pos_segment_ids) == max_seq_length
+        
+        assert len(arc_rel_ids) == max_seq_length
+        assert len(arc_rel_mask) == max_seq_length
+        assert len(arc_rel_segment_ids) == max_seq_length
+        
+        assert len(arc_idx_ids) == max_seq_length
+        assert len(arc_idx_mask) == max_seq_length
+        assert len(arc_idx_segment_ids) == max_seq_length
 
         if output_mode == "classification":
             label_id = label_map[example.label]
@@ -719,6 +802,12 @@ def convert_examples_to_features(examples, label_list, max_seq_length,
             logger.info("pos_ids: %s" % " ".join([str(x) for x in pos_ids]))
             logger.info("pos_mask: %s" % " ".join([str(x) for x in pos_mask]))
             logger.info("pos_segment_ids: %s" % " ".join([str(x) for x in pos_segment_ids]))
+            logger.info("arc_rel_ids: %s" % " ".join([str(x) for x in arc_rel_ids]))
+            logger.info("arc_rel_mask: %s" % " ".join([str(x) for x in arc_rel_mask]))
+            logger.info("arc_rel_segment_ids: %s" % " ".join([str(x) for x in arc_rel_segment_ids]))
+            logger.info("arc_idx_ids: %s" % " ".join([str(x) for x in arc_idx_ids]))
+            logger.info("arc_idx_mask: %s" % " ".join([str(x) for x in arc_idx_mask]))
+            logger.info("arc_idx_segment_ids: %s" % " ".join([str(x) for x in arc_idx_segment_ids]))
             logger.info("label: %s (id = %d)" % (example.label, label_id))
         features.append(
                 InputFeatures(input_ids=input_ids,
@@ -727,6 +816,12 @@ def convert_examples_to_features(examples, label_list, max_seq_length,
                               pos_ids = pos_ids,
                               pos_mask = pos_mask,
                               pos_segment_ids = pos_segment_ids,
+                              arc_rel_ids = arc_rel_ids,
+                              arc_rel_mask = arc_rel_mask,
+                              arc_rel_segment_ids = arc_rel_segment_ids,
+                              arc_idx_ids = arc_idx_ids,
+                              arc_idx_mask = arc_idx_mask,
+                              arc_idx_segment_ids = arc_idx_segment_ids,
                               label_id=label_id))
     return features
 
@@ -747,7 +842,23 @@ def _truncate_seq_pair(tokens_a, tokens_b, max_length):
         else:
             tokens_b.pop()
 
-def _truncate_signal_pair(tokens_a, tokens_b, max_length):
+def _truncate_pos_pair(tokens_a, tokens_b, max_length):
+    """Truncates a sequence pair in place to the maximum length."""
+
+    # This is a simple heuristic which will always truncate the longer sequence
+    # one token at a time. This makes more sense than truncating an equal percent
+    # of tokens from each, since if one sequence is very short then each token
+    # that's truncated likely contains more information than a longer sequence.
+    while True:
+        total_length = len(tokens_a) + len(tokens_b)
+        if total_length <= max_length:
+            break
+        if len(tokens_a) > len(tokens_b):
+            tokens_a.pop()
+        else:
+            tokens_b.pop()
+
+def _truncate_parser_pair(tokens_a, tokens_b, max_length):
     """Truncates a sequence pair in place to the maximum length."""
 
     # This is a simple heuristic which will always truncate the longer sequence
