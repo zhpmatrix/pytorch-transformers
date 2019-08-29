@@ -41,7 +41,7 @@ from pytorch_transformers import (WEIGHTS_NAME, BertConfig,
 from pytorch_transformers import AdamW, WarmupLinearSchedule
 
 from utils_event import (compute_metrics, get_predictions, convert_examples_to_features,
-                        output_modes, processors)
+                        output_modes, processors, ParserTokenizer)
 
 logger = logging.getLogger(__name__)
 
@@ -109,8 +109,9 @@ def train(args, train_dataset, model, tokenizer):
     freeze_layer_num = 0
     prefix = 'encoder'
     for name, param in model.named_parameters():
-        if  name.split('.')[1] == prefix and int(name.split('.')[3])  < freeze_layer_num:
+        if  name.split('.')[2] == prefix and int(name.split('.')[4])  < freeze_layer_num:
             param.requires_grad = False
+    
     train_iterator = trange(int(args.num_train_epochs), desc="Epoch", disable=args.local_rank not in [-1, 0])
     set_seed(args)  # Added here for reproductibility (even between python 2 and 3)
     for _ in train_iterator:
@@ -121,7 +122,16 @@ def train(args, train_dataset, model, tokenizer):
             inputs = {'input_ids':      batch[0],
                       'attention_mask': batch[1],
                       'token_type_ids': batch[2] if args.model_type in ['bert', 'xlnet'] else None,  # XLM don't use segment_ids
-                      'labels':         batch[3]}
+                      'pos_ids':        batch[3],
+                      'pos_mask':       batch[4],
+                      'pos_segment_ids':batch[5] if args.model_type in ['bert', 'xlnet'] else None,
+                      'arc_rel_ids':    batch[6],
+                      'arc_rel_mask':   batch[7],
+                      'arc_rel_segment_ids':batch[8] if args.model_type in ['bert', 'xlnet'] else None,
+                      'arc_idx_ids':    batch[9],
+                      'arc_idx_mask':   batch[10],
+                      'arc_idx_segment_ids':batch[11] if args.model_type in ['bert', 'xlnet'] else None,
+                      'labels':         batch[12]}
             ouputs = model(**inputs)
             loss = ouputs[0]  # model outputs are always tuple in pytorch-transformers (see doc)
 
@@ -137,7 +147,6 @@ def train(args, train_dataset, model, tokenizer):
             else:
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
-
             tr_loss += loss.item()
             if (step + 1) % args.gradient_accumulation_steps == 0:
                 scheduler.step()  # Update learning rate schedule
@@ -148,7 +157,7 @@ def train(args, train_dataset, model, tokenizer):
                 if args.local_rank in [-1, 0] and args.logging_steps > 0 and global_step % args.logging_steps == 0:
                     # Log metrics
                     if args.local_rank == -1 and args.evaluate_during_training:  # Only evaluate when single GPU otherwise metrics may not average well
-                        results = evaluate(args, model, tokenizer)
+                        results = evaluate(args, model, tokenizer,parser_tokenizer)
                         for key, value in results.items():
                             tb_writer.add_scalar('eval_{}'.format(key), value, global_step)
                     tb_writer.add_scalar('lr', scheduler.get_lr()[0], global_step)
@@ -194,14 +203,14 @@ def get_cls_representation(cls_reps, preds, number=1000):
     return True
     
 
-def evaluate(args, model, tokenizer, prefix=""):
+def evaluate(args, model, tokenizer, parser_tokenizer, prefix=""):
     # Loop to handle MNLI double evaluation (matched, mis-matched)
     eval_task_names = ("mnli", "mnli-mm") if args.task_name == "mnli" else (args.task_name,)
     eval_outputs_dirs = (args.output_dir, args.output_dir + '-MM') if args.task_name == "mnli" else (args.output_dir,)
 
     results = {}
     for eval_task, eval_output_dir in zip(eval_task_names, eval_outputs_dirs):
-        eval_dataset = load_and_cache_examples(args, eval_task, tokenizer, state=1)
+        eval_dataset = load_and_cache_examples(args, eval_task, tokenizer, parser_tokenizer, state=1)
 
         if not os.path.exists(eval_output_dir) and args.local_rank in [-1, 0]:
             os.makedirs(eval_output_dir)
@@ -228,7 +237,16 @@ def evaluate(args, model, tokenizer, prefix=""):
                 inputs = {'input_ids':      batch[0],
                           'attention_mask': batch[1],
                           'token_type_ids': batch[2] if args.model_type in ['bert', 'xlnet'] else None,  # XLM don't use segment_ids
-                          'labels':         batch[3]}
+                          'pos_ids':        batch[3],
+                          'pos_mask':       batch[4],
+                          'pos_segment_ids':batch[5] if args.model_type in ['bert', 'xlnet'] else None,
+                          'arc_rel_ids':    batch[6],
+                          'arc_rel_mask':   batch[7],
+                          'arc_rel_segment_ids':batch[8] if args.model_type in ['bert', 'xlnet'] else None,
+                          'arc_idx_ids':    batch[9],
+                          'arc_idx_mask':   batch[10],
+                          'arc_idx_segment_ids':batch[11] if args.model_type in ['bert', 'xlnet'] else None,
+                          'labels':         batch[12]}
                 #outputs,cls_rep = model(**inputs)
                 outputs = model(**inputs)
                 tmp_eval_loss, logits = outputs[:2]
@@ -328,7 +346,7 @@ def test(args, model, tokenizer, prefix=""):
     return results
 
 
-def load_and_cache_examples(args, task, tokenizer, state=0):
+def load_and_cache_examples(args, task, tokenizer, parser_tokenizer, state=0):
     processor = processors[task]()
     output_mode = output_modes[task]
     # Load data features from cache or dataset file
@@ -356,7 +374,7 @@ def load_and_cache_examples(args, task, tokenizer, state=0):
         if state == 2:
             examples = processor.get_test_examples(args.data_dir)
         #examples = processor.get_dev_examples(args.data_dir) if evaluate else processor.get_train_examples(args.data_dir)
-        features = convert_examples_to_features(examples, label_list, args.max_seq_length, tokenizer, output_mode,
+        features = convert_examples_to_features(examples, label_list, args.max_seq_length, tokenizer, parser_tokenizer, output_mode,
             cls_token_at_end=bool(args.model_type in ['xlnet']),            # xlnet has a cls token at the end
             cls_token=tokenizer.cls_token,
             sep_token=tokenizer.sep_token,
@@ -366,17 +384,29 @@ def load_and_cache_examples(args, task, tokenizer, state=0):
         if args.local_rank in [-1, 0]:
             logger.info("Saving features into cached file %s", cached_features_file)
             torch.save(features, cached_features_file)
-
     # Convert to Tensors and build dataset
     all_input_ids = torch.tensor([f.input_ids for f in features], dtype=torch.long)
     all_input_mask = torch.tensor([f.input_mask for f in features], dtype=torch.long)
     all_segment_ids = torch.tensor([f.segment_ids for f in features], dtype=torch.long)
+    
+    all_pos_ids = torch.tensor([f.pos_ids for f in features], dtype=torch.long)
+    all_pos_mask = torch.tensor([f.pos_mask for f in features], dtype=torch.long)
+    all_pos_segment_ids = torch.tensor([f.pos_segment_ids for f in features], dtype=torch.long)
+    
+    all_arc_rel_ids = torch.tensor([f.arc_rel_ids for f in features], dtype=torch.long)
+    all_arc_rel_mask = torch.tensor([f.arc_rel_mask for f in features], dtype=torch.long)
+    all_arc_rel_segment_ids = torch.tensor([f.arc_rel_segment_ids for f in features], dtype=torch.long)
+    
+    all_arc_idx_ids = torch.tensor([f.arc_idx_ids for f in features], dtype=torch.long)
+    all_arc_idx_mask = torch.tensor([f.arc_idx_mask for f in features], dtype=torch.long)
+    all_arc_idx_segment_ids = torch.tensor([f.arc_idx_segment_ids for f in features], dtype=torch.long)
+    
     if output_mode == "classification":
         all_label_ids = torch.tensor([f.label_id for f in features], dtype=torch.long)
     elif output_mode == "regression":
         all_label_ids = torch.tensor([f.label_id for f in features], dtype=torch.float)
 
-    dataset = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids)
+    dataset = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_pos_ids, all_pos_mask, all_pos_segment_ids, all_arc_rel_ids, all_arc_rel_mask, all_arc_rel_segment_ids, all_arc_idx_ids, all_arc_idx_mask, all_arc_idx_segment_ids, all_label_ids)
     return dataset
 
 
@@ -512,6 +542,7 @@ def main():
     config_class, model_class, tokenizer_class = MODEL_CLASSES[args.model_type]
     config = config_class.from_pretrained(args.config_name if args.config_name else args.model_name_or_path, num_labels=num_labels, finetuning_task=args.task_name)
     tokenizer = tokenizer_class.from_pretrained(args.tokenizer_name if args.tokenizer_name else args.model_name_or_path, do_lower_case=args.do_lower_case)
+    parser_tokenizer = ParserTokenizer()
     model = model_class.from_pretrained(args.model_name_or_path, from_tf=bool('.ckpt' in args.model_name_or_path), config=config)
 
     if args.local_rank == 0:
@@ -530,7 +561,7 @@ def main():
 
     # Training
     if args.do_train:
-        train_dataset = load_and_cache_examples(args, args.task_name, tokenizer, state=0)
+        train_dataset = load_and_cache_examples(args, args.task_name, tokenizer, parser_tokenizer, state=0)
         global_step, tr_loss = train(args, train_dataset, model, tokenizer)
         logger.info(" global_step = %s, average loss = %s", global_step, tr_loss)
 
@@ -569,7 +600,7 @@ def main():
             global_step = checkpoint.split('-')[-1] if len(checkpoints) > 1 else ""
             model = model_class.from_pretrained(checkpoint)
             model.to(args.device)
-            result = evaluate(args, model, tokenizer, prefix=global_step)
+            result = evaluate(args, model, tokenizer, parser_tokenizer, prefix=global_step)
             result = dict((k + '_{}'.format(global_step), v) for k, v in result.items())
             results.update(result)
     # Test 
