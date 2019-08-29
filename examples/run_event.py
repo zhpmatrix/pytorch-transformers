@@ -279,14 +279,14 @@ def evaluate(args, model, tokenizer, parser_tokenizer, prefix=""):
 
     return results
 
-def test(args, model, tokenizer, prefix=""):
+def test(args, model, tokenizer, parser_tokenizer, prefix=""):
     # Loop to handle MNLI double evaluation (matched, mis-matched)
     eval_task_names = ("mnli", "mnli-mm") if args.task_name == "mnli" else (args.task_name,)
     eval_outputs_dirs = (args.output_dir, args.output_dir + '-MM') if args.task_name == "mnli" else (args.output_dir,)
 
     results = {}
     for eval_task, eval_output_dir in zip(eval_task_names, eval_outputs_dirs):
-        eval_dataset= load_and_cache_examples(args, eval_task, tokenizer, state=2)
+        eval_dataset, eval_examples = load_and_cache_examples(args, eval_task, tokenizer, parser_tokenizer, state=2)
 
         if not os.path.exists(eval_output_dir) and args.local_rank in [-1, 0]:
             os.makedirs(eval_output_dir)
@@ -312,7 +312,16 @@ def test(args, model, tokenizer, prefix=""):
                 inputs = {'input_ids':      batch[0],
                           'attention_mask': batch[1],
                           'token_type_ids': batch[2] if args.model_type in ['bert', 'xlnet'] else None,  # XLM don't use segment_ids
-                          'labels':         batch[3]}
+                          'pos_ids':        batch[3],
+                          'pos_mask':       batch[4],
+                          'pos_segment_ids':batch[5] if args.model_type in ['bert', 'xlnet'] else None,
+                          'arc_rel_ids':    batch[6],
+                          'arc_rel_mask':   batch[7],
+                          'arc_rel_segment_ids':batch[8] if args.model_type in ['bert', 'xlnet'] else None,
+                          'arc_idx_ids':    batch[9],
+                          'arc_idx_mask':   batch[10],
+                          'arc_idx_segment_ids':batch[11] if args.model_type in ['bert', 'xlnet'] else None,
+                          'labels':         batch[12]}
                 outputs = model(**inputs)
                 tmp_eval_loss, logits = outputs[:2]
 
@@ -332,8 +341,8 @@ def test(args, model, tokenizer, prefix=""):
             preds = np.squeeze(preds)
         
         output_eval_file = os.path.join(eval_output_dir, "eval_results.txt")
-        #predictions = get_predictions(preds, out_label_ids, eval_examples, output_eval_file)
-        #results.update(predictions)
+        predictions = get_predictions(preds, out_label_ids, eval_examples, output_eval_file)
+        results.update(predictions)
         
         result = compute_metrics(eval_task, preds, out_label_ids)
         results.update(result)
@@ -614,7 +623,7 @@ def main():
             global_step = checkpoint.split('-')[-1] if len(checkpoints) > 1 else ""
             model = model_class.from_pretrained(checkpoint)
             model.to(args.device)
-            result = test(args, model, tokenizer, prefix=global_step)
+            result = test(args, model, tokenizer, parser_tokenizer, prefix=global_step)
             result = dict((k + '_{}'.format(global_step), v) for k, v in result.items())
             results.update(result)
 
