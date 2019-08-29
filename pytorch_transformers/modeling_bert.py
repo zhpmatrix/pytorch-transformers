@@ -276,7 +276,12 @@ class BertEmbeddings(nn.Module):
         
         arc_idx_embeddings = self.arc_idx_embeddings(arc_idx_ids)
         arc_idx_segment_embeddings = self.token_type_embeddings(arc_idx_segment_ids)
-        embeddings = words_embeddings + position_embeddings + token_type_embeddings + pos_embeddings + pos_segment_embeddings+arc_rel_embeddings + arc_rel_segment_embeddings + arc_idx_embeddings + arc_idx_segment_embeddings
+        #22
+        #embeddings = words_embeddings + position_embeddings + token_type_embeddings + pos_embeddings + pos_segment_embeddings+arc_rel_embeddings + arc_rel_segment_embeddings + arc_idx_embeddings + arc_idx_segment_embeddings
+        #23
+        embeddings = words_embeddings + position_embeddings + token_type_embeddings
+        #24
+        #embeddings = words_embeddings + position_embeddings + token_type_embeddings + pos_embeddings + pos_segment_embeddings
         embeddings = self.LayerNorm(embeddings)
         embeddings = self.dropout(embeddings)
         return embeddings
