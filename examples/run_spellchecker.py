@@ -42,7 +42,6 @@ from pytorch_transformers import (WEIGHTS_NAME, BertConfig,
 from pytorch_transformers import AdamW, WarmupLinearSchedule
 from utils_spellchecker import (compute_metrics, convert_examples_to_features,
                         output_modes, processors)
-torch.backends.cudnn.benchmark = True
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +66,6 @@ def train(args, train_dataset, model, tokenizer):
     """ Train the model """
     if args.local_rank in [-1, 0]:
         tb_writer = SummaryWriter()
-
     args.train_batch_size = args.per_gpu_train_batch_size * max(1, args.n_gpu)
     train_sampler = RandomSampler(train_dataset) if args.local_rank == -1 else DistributedSampler(train_dataset)
     train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=args.train_batch_size)
@@ -201,7 +199,6 @@ def evaluate(args, model, tokenizer, prefix=""):
         out_label_ids = None
         for batch in tqdm(eval_dataloader, desc="Evaluating"):
             model.eval()
-            torch.cuda.empty_cache()
             batch = tuple(t.to(args.device) for t in batch)
             with torch.no_grad():
                 inputs = {'input_ids':      batch[0],
@@ -292,6 +289,7 @@ def main():
                         help="Model type selected in the list: " + ", ".join(MODEL_CLASSES.keys()))
     parser.add_argument("--model_name_or_path", default=None, type=str, required=True,
                         help="Path to pre-trained model or shortcut name selected in the list: " + ", ".join(ALL_MODELS))
+    parser.add_argument("--checkpoint_path", default=None, type=str, help="checkpoint model to load. ")
     parser.add_argument("--task_name", default=None, type=str, required=True,
                         help="The name of the task to train selected in the list: " + ", ".join(processors.keys()))
     parser.add_argument("--output_dir", default=None, type=str, required=True,
@@ -312,7 +310,7 @@ def main():
     parser.add_argument("--do_eval", action='store_true',
                         help="Whether to run eval on the dev set.")
     parser.add_argument("--evaluate_during_training", action='store_true',
-                        help="Rul evaluation during training at each logging step.")
+                        help="Run evaluation during training at each logging step.")
     parser.add_argument("--do_lower_case", action='store_true',
                         help="Set this flag if you are using an uncased model.")
 
@@ -394,7 +392,7 @@ def main():
 
     # Set seed
     set_seed(args)
-
+    
     # Prepare GLUE task
     args.task_name = args.task_name.lower()
     if args.task_name not in processors:
@@ -406,7 +404,6 @@ def main():
     # Load pretrained model and tokenizer
     if args.local_rank not in [-1, 0]:
         torch.distributed.barrier()  # Make sure only the first process in distributed training will download model & vocab
-
     args.model_type = args.model_type.lower()
     config_class, model_class, tokenizer_class = MODEL_CLASSES[args.model_type]
     config = config_class.from_pretrained(args.config_name if args.config_name else args.model_name_or_path, num_labels=num_labels, finetuning_task=args.task_name)
@@ -426,9 +423,11 @@ def main():
         model = torch.nn.DataParallel(model)
 
     logger.info("Training/evaluation parameters %s", args)
-
     # Training
     if args.do_train:
+        if args.checkpoint_path:
+            model = model_class.from_pretrained(args.checkpoint_path)
+            model.to(args.device)
         train_dataset = load_and_cache_examples(args, args.task_name, tokenizer, evaluate=False)
         global_step, tr_loss = train(args, train_dataset, model, tokenizer)
         logger.info(" global_step = %s, average loss = %s", global_step, tr_loss)
