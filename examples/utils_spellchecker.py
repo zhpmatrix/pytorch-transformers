@@ -312,10 +312,10 @@ def custom_metrics(preds, srcs, tgts, lengths, max_seq_length):
     correction_accuracy = (s0_p2_t2) *1.0/(s0_p0_t2 + s0_p1_t2 + s0_p2_t2)
     detection_error = (s2_p1_t2) *1.0/(total_count)
     
-    return {'prediction accuracy': prediction_accuracy,
-            'detection accuracy': detection_accuracy,
-            'correction accuracy': correction_accuracy,
-            'detection error rate': detection_error}
+    return {'prediction_accuracy': prediction_accuracy,
+            'detection_accuracy': detection_accuracy,
+            'correction_accuracy': correction_accuracy,
+            'detection_error_rate': detection_error}
 
 def acc_and_f1(preds, srcs, labels, max_seq_length):
     labels_list = labels.reshape(-1).tolist()
