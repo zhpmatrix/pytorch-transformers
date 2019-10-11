@@ -118,6 +118,9 @@ dmypy.json
 # vscode
 .vscode
 
+# Pycharm
+.idea
+
 # TF code
 tensorflow_code
 
@@ -129,4 +132,9 @@ proc_data
 runs
 examples/runs
 
-data
+# data
+/data
+serialization_dir
+
+# emacs
+*.*~
