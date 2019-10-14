@@ -4,6 +4,7 @@ test_file=$data_dir/test.txt
 model_path=base_model/roberta-wwm-ext-chinese/
 cuda=3
 expr=1
+
 CUDA_VISIBLE_DEVICES=$cuda python run_lm_finetuning.py \
 	--output_dir=train/$expr \
 	--model_type=bert \
