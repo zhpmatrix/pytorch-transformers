@@ -29,7 +29,7 @@ import pickle
 import random
 import re
 import shutil
-
+import copy
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset, SequentialSampler, RandomSampler
@@ -74,18 +74,24 @@ class TextDataset(Dataset):
                 self.examples = pickle.load(handle)
         else:
             logger.info("Creating features from dataset file at %s", directory)
-
             self.examples = []
             with open(file_path, encoding="utf-8") as f:
-                text = f.read()
+                #text = f.read()
+                textlines = f.readlines()
+            max_seq_length = 128
+            for text in textlines:
+                text = text.strip().lower()
+                tokenized_text = tokenizer.tokenize(text)
+                if len(tokenized_text) > max_seq_length - 2:
+                    tokenized_text = tokenized_text[:max_seq_length]
+                else:
+                    padding_num = max_seq_length - 2 - len(tokenized_text)
+                    tokenized_text.extend(['[PAD]']*padding_num)
+                tokenized_text.insert(0,'[CLS]')
+                tokenized_text.append('[SEP]')
 
-            tokenized_text = tokenizer.convert_tokens_to_ids(tokenizer.tokenize(text))
-
-            for i in range(0, len(tokenized_text)-block_size+1, block_size): # Truncate in block of block_size
-                self.examples.append(tokenizer.build_inputs_with_special_tokens(tokenized_text[i:i+block_size]))
-            # Note that we are loosing the last truncated example here for the sake of simplicity (no padding)
-            # If your dataset is small, first you should loook for a bigger one :-) and second you
-            # can change this behavior by adding (model specific) padding.
+                tokenized_text_ids = tokenizer.convert_tokens_to_ids(tokenized_text)
+                self.examples.append(tokenized_text_ids)
 
             logger.info("Saving features into cached file %s", cached_features_file)
             with open(cached_features_file, 'wb') as handle:
@@ -162,6 +168,49 @@ def mask_tokens(inputs, tokenizer, args):
     # The rest of the time (10% of the time) we keep the masked input tokens unchanged
     return inputs, labels
 
+def mask_tokens_custom(inputs, tokenizer, args):
+    """ Prepare masked tokens inputs/labels for masked language modeling: 80% MASK, 10% random, 10% original. """
+    labels = inputs.clone()
+    # We sample a few tokens in each sequence for masked-LM training (with probability args.mlm_probability defaults to 0.15 in Bert/RoBERTa)
+    probability_matrix = torch.full(labels.shape, args.mlm_probability)
+    special_tokens_mask = [tokenizer.get_special_tokens_mask(val, already_has_special_tokens=True) for val in labels.tolist()]
+    probability_matrix.masked_fill_(torch.tensor(special_tokens_mask, dtype=torch.bool), value=0.0)
+    masked_indices = torch.bernoulli(probability_matrix).bool()
+    labels[~masked_indices] = -1  # We only compute loss on masked tokens
+
+    # 80% of the time, we replace masked input tokens with tokenizer.mask_token ([MASK])
+    indices_replaced = torch.bernoulli(torch.full(labels.shape, 0.8)).bool() & masked_indices
+    inputs[indices_replaced] = tokenizer.convert_tokens_to_ids(tokenizer.mask_token)
+
+    # 10% of the time, we replace masked input tokens with random word
+    indices_random = torch.bernoulli(torch.full(labels.shape, 0.5)).bool() & masked_indices & ~indices_replaced
+    random_words = torch.randint(len(tokenizer), labels.shape, dtype=torch.long)
+    inputs[indices_random] = random_words[indices_random]
+
+    # The rest of the time (10% of the time) we keep the masked input tokens unchanged
+    return inputs, labels
+
+def print_preds(batch_inputs, batch_labels, batch_pred_labels, tokenizer):
+    real_input_batch_idxs = batch_inputs.tolist()
+    real_label_batch_idxs = batch_labels.tolist()
+    pred_label_batch_idxs = torch.argmax(batch_pred_labels, -1).tolist()
+    
+    for real_input, real_label, pred_label in zip(real_input_batch_idxs, real_label_batch_idxs, pred_label_batch_idxs):
+        real_input_sent = tokenizer.convert_ids_to_tokens(real_input)
+        real_label_sent = tokenizer.convert_ids_to_tokens(real_label)
+        pred_label_sent = tokenizer.convert_ids_to_tokens(pred_label)
+        
+        # 过滤[CLS],[SEP]和[PAD]
+        filter_token_list = [tokenizer.cls_token, tokenizer.pad_token, tokenizer.sep_token]
+        real_input = [token for token in real_input_sent if token not in filter_token_list]
+        real_label = [token for token in real_label_sent if token not in filter_token_list]
+        pred_label = pred_label_sent[1:-1][:len(real_input)]
+        print(''.join(real_input))
+        print('\n')
+        print(''.join(real_label))
+        print('\n')
+        print(''.join(pred_label))
+        print('-'*20)
 
 def train(args, train_dataset, model, tokenizer):
     """ Train the model """
@@ -221,13 +270,14 @@ def train(args, train_dataset, model, tokenizer):
     for _ in train_iterator:
         epoch_iterator = tqdm(train_dataloader, desc="Iteration", disable=args.local_rank not in [-1, 0])
         for step, batch in enumerate(epoch_iterator):
-            inputs, labels = mask_tokens(batch, tokenizer, args) if args.mlm else (batch, batch)
+            #raw_batch = copy.deepcopy(batch)
+            inputs, labels = mask_tokens_custom(batch, tokenizer, args) if args.mlm else (batch, batch)
             inputs = inputs.to(args.device)
             labels = labels.to(args.device)
             model.train()
             outputs = model(inputs, masked_lm_labels=labels) if args.mlm else model(inputs, labels=labels)
             loss = outputs[0]  # model outputs are always tuple in transformers (see doc)
-
+            #print_preds(inputs, raw_batch, outputs[1], tokenizer)
             if args.n_gpu > 1:
                 loss = loss.mean()  # mean() to average on multi-gpu parallel training
             if args.gradient_accumulation_steps > 1:
@@ -307,16 +357,68 @@ def evaluate(args, model, tokenizer, prefix=""):
     eval_loss = 0.0
     nb_eval_steps = 0
     model.eval()
-
     for batch in tqdm(eval_dataloader, desc="Evaluating"):
+        raw_batch = copy.deepcopy(batch)
+        inputs, labels = mask_tokens_custom(batch, tokenizer, args) if args.mlm else (batch, batch)
         batch = batch.to(args.device)
-
+        inputs = inputs.to(args.device)
+        labels = labels.to(args.device)
         with torch.no_grad():
-            outputs = model(batch, masked_lm_labels=batch) if args.mlm else model(batch, labels=batch)
+            outputs = model(inputs, masked_lm_labels=labels) if args.mlm else model(batch, labels=batch)
             lm_loss = outputs[0]
             eval_loss += lm_loss.mean().item()
         nb_eval_steps += 1
+        
+    eval_loss = eval_loss / nb_eval_steps
+    perplexity = torch.exp(torch.tensor(eval_loss))
 
+    result = {
+        "perplexity": perplexity
+    }
+
+    output_eval_file = os.path.join(eval_output_dir, prefix, "eval_results.txt")
+    with open(output_eval_file, "w") as writer:
+        logger.info("***** Eval results {} *****".format(prefix))
+        for key in sorted(result.keys()):
+            logger.info("  %s = %s", key, str(result[key]))
+            writer.write("%s = %s\n" % (key, str(result[key])))
+
+    return result
+
+def inference(args, model, tokenizer, prefix=""):
+    # Loop to handle MNLI double evaluation (matched, mis-matched)
+    eval_output_dir = args.output_dir
+
+    eval_dataset = load_and_cache_examples(args, tokenizer, evaluate=True)
+
+    if not os.path.exists(eval_output_dir) and args.local_rank in [-1, 0]:
+        os.makedirs(eval_output_dir)
+
+    args.eval_batch_size = args.per_gpu_eval_batch_size * max(1, args.n_gpu)
+    # Note that DistributedSampler samples randomly
+    eval_sampler = SequentialSampler(eval_dataset) if args.local_rank == -1 else DistributedSampler(eval_dataset)
+    eval_dataloader = DataLoader(eval_dataset, sampler=eval_sampler, batch_size=args.eval_batch_size)
+
+    # Eval!
+    logger.info("***** Running evaluation {} *****".format(prefix))
+    logger.info("  Num examples = %d", len(eval_dataset))
+    logger.info("  Batch size = %d", args.eval_batch_size)
+    eval_loss = 0.0
+    nb_eval_steps = 0
+    model.eval()
+    for batch in tqdm(eval_dataloader, desc="Evaluating"):
+        raw_batch = copy.deepcopy(batch)
+        inputs, labels = mask_tokens_custom(batch, tokenizer, args) if args.mlm else (batch, batch)
+        batch = batch.to(args.device)
+        inputs = inputs.to(args.device)
+        labels = labels.to(args.device)
+        with torch.no_grad():
+            outputs = model(inputs, masked_lm_labels=labels) if args.mlm else model(batch, labels=batch)
+            lm_loss = outputs[0]
+            eval_loss += lm_loss.mean().item()
+            print_preds(inputs, raw_batch, outputs[1], tokenizer)
+        import pdb;pdb.set_trace()
+        nb_eval_steps += 1
     eval_loss = eval_loss / nb_eval_steps
     perplexity = torch.exp(torch.tensor(eval_loss))
 
@@ -338,7 +440,7 @@ def main():
     parser = argparse.ArgumentParser()
 
     ## Required parameters
-    parser.add_argument("--train_data_file", default=None, type=str, required=True,
+    parser.add_argument("--train_data_file", default=None, type=str, required=False,
                         help="The input training data file (a text file).")
     parser.add_argument("--output_dir", default=None, type=str, required=True,
                         help="The output directory where the model predictions and checkpoints will be written.")
@@ -365,8 +467,7 @@ def main():
                         help="Optional directory to store the pre-trained models downloaded from s3 (instread of the default one)")
     parser.add_argument("--block_size", default=-1, type=int,
                         help="Optional input sequence length after tokenization."
-                             "The training dataset will be truncated in block of this size for training."
-                             "Default to the model max input length for single sentence inputs (take into account special tokens).")
+                             "The training dataset will be truncated in block of this size for training.""Default to the model max input length for single sentence inputs (take into account special tokens).")
     parser.add_argument("--do_train", action='store_true',
                         help="Whether to run training.")
     parser.add_argument("--do_eval", action='store_true',
@@ -417,8 +518,7 @@ def main():
     parser.add_argument('--fp16', action='store_true',
                         help="Whether to use 16-bit (mixed) precision (through NVIDIA apex) instead of 32-bit")
     parser.add_argument('--fp16_opt_level', type=str, default='O1',
-                        help="For fp16: Apex AMP optimization level selected in ['O0', 'O1', 'O2', and 'O3']."
-                             "See details at https://nvidia.github.io/apex/amp.html")
+                        help="For fp16: Apex AMP optimization level selected in ['O0', 'O1', 'O2', and 'O3'].""See details at https://nvidia.github.io/apex/amp.html")
     parser.add_argument("--local_rank", type=int, default=-1,
                         help="For distributed training: local_rank")
     parser.add_argument('--server_ip', type=str, default='', help="For distant debugging.")
@@ -516,8 +616,6 @@ def main():
         model = model_class.from_pretrained(args.output_dir)
         tokenizer = tokenizer_class.from_pretrained(args.output_dir, do_lower_case=args.do_lower_case)
         model.to(args.device)
-
-
     # Evaluation
     results = {}
     if args.do_eval and args.local_rank in [-1, 0]:
@@ -532,12 +630,11 @@ def main():
             
             model = model_class.from_pretrained(checkpoint)
             model.to(args.device)
-            result = evaluate(args, model, tokenizer, prefix=prefix)
+            result = inference(args, model, tokenizer, prefix=prefix)
             result = dict((k + '_{}'.format(global_step), v) for k, v in result.items())
             results.update(result)
 
     return results
-
 
 if __name__ == "__main__":
     main()
