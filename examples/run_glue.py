@@ -427,7 +427,6 @@ def main():
 
     # Set seed
     set_seed(args)
-
     # Prepare GLUE task
     args.task_name = args.task_name.lower()
     if args.task_name not in processors:
@@ -483,7 +482,7 @@ def main():
         tokenizer = tokenizer_class.from_pretrained(args.output_dir, do_lower_case=args.do_lower_case)
         model.to(args.device)
 
-
+    import pdb;pdb.set_trace()
     # Evaluation
     results = {}
     if args.do_eval and args.local_rank in [-1, 0]:
