@@ -66,7 +66,8 @@ class TextDataset(Dataset):
     def __init__(self, tokenizer, file_path='train', block_size=512):
         assert os.path.isfile(file_path)
         directory, filename = os.path.split(file_path)
-        cached_features_file = os.path.join(directory, 'cached_lm_' + str(block_size) + '_' + filename)
+        tag = 'attr_'
+        cached_features_file = os.path.join(directory, tag+'cached_lm_' + str(block_size) + '_' + filename)
 
         if os.path.exists(cached_features_file):
             logger.info("Loading features from cached file %s", cached_features_file)
@@ -91,7 +92,8 @@ class TextDataset(Dataset):
                 
                 tokenized_text_ids = tokenizer.convert_tokens_to_ids(tokenized_text)
                 tokenized_text_ids_ = tokenizer.build_inputs_with_special_tokens(tokenized_text_ids)
-                self.examples.append(tokenized_text_ids_)
+                attribute_ids = [int(label)] * len(tokenized_text_ids_)
+                self.examples.append([tokenized_text_ids_,attribute_ids])
 
             logger.info("Saving features into cached file %s", cached_features_file)
             with open(cached_features_file, 'wb') as handle:
@@ -277,11 +279,13 @@ def train(args, train_dataset, model, tokenizer):
         epoch_iterator = tqdm(train_dataloader, desc="Iteration", disable=args.local_rank not in [-1, 0])
         for step, batch in enumerate(epoch_iterator):
             #raw_batch = copy.deepcopy(batch)
-            inputs, labels = mask_tokens_custom(batch, tokenizer, args) if args.mlm else (batch, batch)
+            inputs, labels = mask_tokens_custom(batch[:,0,:], tokenizer, args)
+            attribute_type_ids = batch[:,1,:]
             inputs = inputs.to(args.device)
             labels = labels.to(args.device)
+            attribute_type_ids = attribute_type_ids.to(args.device)
             model.train()
-            outputs = model(inputs, masked_lm_labels=labels) if args.mlm else model(inputs, labels=labels)
+            outputs = model(inputs, token_type_ids = attribute_type_ids, masked_lm_labels=labels) if args.mlm else model(inputs, labels=labels)
             loss = outputs[0]  # model outputs are always tuple in transformers (see doc)
             #print_preds(inputs, raw_batch, outputs[1], tokenizer)
             if args.n_gpu > 1:
@@ -365,12 +369,15 @@ def evaluate(args, model, tokenizer, prefix=""):
     model.eval()
     for batch in tqdm(eval_dataloader, desc="Evaluating"):
         raw_batch = copy.deepcopy(batch)
-        inputs, labels = mask_tokens_custom(batch, tokenizer, args) if args.mlm else (batch, batch)
-        batch = batch.to(args.device)
+        inputs, labels = mask_tokens_custom(batch[:,0,:], tokenizer, args)
+        attribute_type_ids = batch[:,1,:]
+        batch = batch[:,0,:].to(args.device)
         inputs = inputs.to(args.device)
         labels = labels.to(args.device)
+        attribute_type_ids = attribute_type_ids.to(args.device)
+        model.train()
         with torch.no_grad():
-            outputs = model(inputs, masked_lm_labels=labels) if args.mlm else model(batch, labels=batch)
+            outputs = model(inputs, token_type_ids = attribute_type_ids, masked_lm_labels=labels) if args.mlm else model(batch, labels=batch)
             lm_loss = outputs[0]
             eval_loss += lm_loss.mean().item()
         nb_eval_steps += 1
@@ -414,16 +421,18 @@ def inference(args, model, tokenizer, prefix=""):
     model.eval()
     for batch in tqdm(eval_dataloader, desc="Evaluating"):
         raw_batch = copy.deepcopy(batch)
-        inputs, labels = mask_tokens_custom(batch, tokenizer, args) if args.mlm else (batch, batch)
-        batch = batch.to(args.device)
+        inputs, labels = mask_tokens_custom(batch[:,0,:], tokenizer, args)
+        attribute_type_ids = batch[:,1,:]
+        batch = batch[:,0,:].to(args.device)
         inputs = inputs.to(args.device)
         labels = labels.to(args.device)
+        attribute_type_ids = attribute_type_ids.to(args.device)
         with torch.no_grad():
-            outputs = model(inputs, masked_lm_labels=labels) if args.mlm else model(batch, labels=batch)
+            import pdb;pdb.set_trace()
+            outputs = model(inputs, token_type_ids=attribute_type_ids, masked_lm_labels=labels) if args.mlm else model(batch, labels=batch)
             lm_loss = outputs[0]
             eval_loss += lm_loss.mean().item()
             print_preds(inputs, raw_batch, outputs[1], tokenizer)
-        import pdb;pdb.set_trace()
         nb_eval_steps += 1
     eval_loss = eval_loss / nb_eval_steps
     perplexity = torch.exp(torch.tensor(eval_loss))
