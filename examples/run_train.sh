@@ -1,7 +1,7 @@
 data_dir=/data/share/zhanghaipeng/data/yelp/style_transfer/
 cuda=1
 expr=0
-CUDA_VISIBLE_DEVICES=$cuda python run_glue.py \
+CUDA_VISIBLE_DEVICES=$cuda python run_stmi.py \
 	--model_type roberta \
 	--model_name_or_path roberta-base \
 	--task_name stmi \
