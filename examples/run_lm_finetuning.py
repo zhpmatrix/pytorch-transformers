@@ -170,6 +170,39 @@ def mask_tokens(inputs, tokenizer, args):
     # The rest of the time (10% of the time) we keep the masked input tokens unchanged
     return inputs, labels
 
+def mask_tokens_attr(inputs, attributes, tokenizer, args, pos_vocab, neg_vocab):
+    """ Prepare masked tokens inputs/labels for masked language modeling: 80% MASK, 10% random, 10% original. """
+    labels = inputs.clone()
+    attribute = attributes[:,0].tolist()
+    mask = []
+    for attr,each_label in zip(attribute,labels.tolist()):
+        each_mask = []
+        if attr == 0:
+            each_mask = [tokenizer.convert_ids_to_tokens(label) in neg_vocab  for label in each_label] 
+        else:
+            each_mask = [tokenizer.convert_ids_to_tokens(label) in pos_vocab for label in each_label] 
+        mask.append(each_mask)
+    mask_tensor = torch.tensor(mask,dtype=torch.float32)
+    # We sample a few tokens in each sequence for masked-LM training (with probability args.mlm_probability defaults to 0.15 in Bert/RoBERTa)
+    probability_matrix = torch.full(labels.shape, args.mlm_probability)
+    special_tokens_mask = [tokenizer.get_special_tokens_mask(val, already_has_special_tokens=True) for val in labels.tolist()]
+    probability_matrix.masked_fill_(torch.tensor(special_tokens_mask, dtype=torch.bool), value=0.0)
+    probability_matrix = probability_matrix * mask_tensor
+    masked_indices = torch.bernoulli(probability_matrix).bool()
+    labels[~masked_indices] = -1  # We only compute loss on masked tokens
+
+    # 80% of the time, we replace masked input tokens with tokenizer.mask_token ([MASK])
+    indices_replaced = torch.bernoulli(torch.full(labels.shape, 0.8)).bool() & masked_indices
+    inputs[indices_replaced] = tokenizer.convert_tokens_to_ids(tokenizer.mask_token)
+
+    # 10% of the time, we replace masked input tokens with random word
+    indices_random = torch.bernoulli(torch.full(labels.shape, 0.5)).bool() & masked_indices & ~indices_replaced
+    random_words = torch.randint(len(tokenizer), labels.shape, dtype=torch.long)
+    inputs[indices_random] = random_words[indices_random]
+
+    # The rest of the time (10% of the time) we keep the masked input tokens unchanged
+    return inputs, labels
+
 def mask_tokens_custom(inputs, tokenizer, args):
     """ Prepare masked tokens inputs/labels for masked language modeling: 80% MASK, 10% random, 10% original. """
     labels = inputs.clone()
@@ -228,6 +261,13 @@ def train(args, train_dataset, model, tokenizer):
     args.train_batch_size = args.per_gpu_train_batch_size * max(1, args.n_gpu)
     train_sampler = RandomSampler(train_dataset) if args.local_rank == -1 else DistributedSampler(train_dataset)
     train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=args.train_batch_size)
+    with open(args.pos_vocab,'r') as reader:
+        textlines = reader.readlines()
+    pos_vocab = [text.strip() for text in textlines]
+    
+    with open(args.neg_vocab,'r') as reader:
+        textlines = reader.readlines()
+    neg_vocab = [text.strip() for text in textlines]
 
     if args.max_steps > 0:
         t_total = args.max_steps
@@ -279,7 +319,7 @@ def train(args, train_dataset, model, tokenizer):
         epoch_iterator = tqdm(train_dataloader, desc="Iteration", disable=args.local_rank not in [-1, 0])
         for step, batch in enumerate(epoch_iterator):
             #raw_batch = copy.deepcopy(batch)
-            inputs, labels = mask_tokens_custom(batch[:,0,:], tokenizer, args)
+            inputs, labels = mask_tokens_attr(batch[:,0,:], batch[:,1,:], tokenizer, args, pos_vocab, neg_vocab)
             attribute_type_ids = batch[:,1,:]
             inputs = inputs.to(args.device)
             labels = labels.to(args.device)
@@ -313,7 +353,7 @@ def train(args, train_dataset, model, tokenizer):
                 if args.local_rank in [-1, 0] and args.logging_steps > 0 and global_step % args.logging_steps == 0:
                     # Log metrics
                     if args.local_rank == -1 and args.evaluate_during_training:  # Only evaluate when single GPU otherwise metrics may not average well
-                        results = evaluate(args, model, tokenizer)
+                        results = evaluate(args, model, tokenizer, pos_vocab, neg_vocab)
                         for key, value in results.items():
                             tb_writer.add_scalar('eval_{}'.format(key), value, global_step)
                     tb_writer.add_scalar('lr', scheduler.get_lr()[0], global_step)
@@ -346,7 +386,7 @@ def train(args, train_dataset, model, tokenizer):
     return global_step, tr_loss / global_step
 
 
-def evaluate(args, model, tokenizer, prefix=""):
+def evaluate(args, model, tokenizer, pos_vocab, neg_vocab, prefix=""):
     # Loop to handle MNLI double evaluation (matched, mis-matched)
     eval_output_dir = args.output_dir
 
@@ -359,7 +399,6 @@ def evaluate(args, model, tokenizer, prefix=""):
     # Note that DistributedSampler samples randomly
     eval_sampler = SequentialSampler(eval_dataset) if args.local_rank == -1 else DistributedSampler(eval_dataset)
     eval_dataloader = DataLoader(eval_dataset, sampler=eval_sampler, batch_size=args.eval_batch_size)
-
     # Eval!
     logger.info("***** Running evaluation {} *****".format(prefix))
     logger.info("  Num examples = %d", len(eval_dataset))
@@ -369,7 +408,7 @@ def evaluate(args, model, tokenizer, prefix=""):
     model.eval()
     for batch in tqdm(eval_dataloader, desc="Evaluating"):
         raw_batch = copy.deepcopy(batch)
-        inputs, labels = mask_tokens_custom(batch[:,0,:], tokenizer, args)
+        inputs, labels = mask_tokens_attr(batch[:,0,:], batch[:,1,:], tokenizer, args, pos_vocab, neg_vocab)
         attribute_type_ids = batch[:,1,:]
         batch = batch[:,0,:].to(args.device)
         inputs = inputs.to(args.device)
@@ -411,6 +450,13 @@ def inference(args, model, tokenizer, prefix=""):
     # Note that DistributedSampler samples randomly
     eval_sampler = SequentialSampler(eval_dataset) if args.local_rank == -1 else DistributedSampler(eval_dataset)
     eval_dataloader = DataLoader(eval_dataset, sampler=eval_sampler, batch_size=args.eval_batch_size)
+    with open(args.pos_vocab,'r') as reader:
+        textlines = reader.readlines()
+    pos_vocab = [text.strip() for text in textlines]
+    
+    with open(args.neg_vocab,'r') as reader:
+        textlines = reader.readlines()
+    neg_vocab = [text.strip() for text in textlines]
 
     # Eval!
     logger.info("***** Running evaluation {} *****".format(prefix))
@@ -420,19 +466,19 @@ def inference(args, model, tokenizer, prefix=""):
     nb_eval_steps = 0
     model.eval()
     for batch in tqdm(eval_dataloader, desc="Evaluating"):
-        raw_batch = copy.deepcopy(batch)
-        inputs, labels = mask_tokens_custom(batch[:,0,:], tokenizer, args)
+        raw_batch = copy.deepcopy(batch[:,0,:])
+        inputs, labels = mask_tokens_attr(batch[:,0,:], batch[:,1,:], tokenizer, args, pos_vocab, neg_vocab)
         attribute_type_ids = batch[:,1,:]
         batch = batch[:,0,:].to(args.device)
         inputs = inputs.to(args.device)
         labels = labels.to(args.device)
         attribute_type_ids = attribute_type_ids.to(args.device)
         with torch.no_grad():
-            import pdb;pdb.set_trace()
             outputs = model(inputs, token_type_ids=attribute_type_ids, masked_lm_labels=labels) if args.mlm else model(batch, labels=batch)
             lm_loss = outputs[0]
             eval_loss += lm_loss.mean().item()
             print_preds(inputs, raw_batch, outputs[1], tokenizer)
+        import pdb;pdb.set_trace()
         nb_eval_steps += 1
     eval_loss = eval_loss / nb_eval_steps
     perplexity = torch.exp(torch.tensor(eval_loss))
@@ -457,6 +503,10 @@ def main():
     ## Required parameters
     parser.add_argument("--train_data_file", default=None, type=str, required=False,
                         help="The input training data file (a text file).")
+    parser.add_argument("--pos_vocab", default=None, type=str, required=False,
+                        help="")
+    parser.add_argument("--neg_vocab", default=None, type=str, required=False,
+                        help="")
     parser.add_argument("--output_dir", default=None, type=str, required=True,
                         help="The output directory where the model predictions and checkpoints will be written.")
 
