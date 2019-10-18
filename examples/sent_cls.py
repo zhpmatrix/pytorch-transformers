@@ -62,14 +62,14 @@ def set_seed(args):
     if args.n_gpu > 0:
         torch.cuda.manual_seed_all(args.seed)
 
-def evaluate_attn(args, model, tokenizer):
+def evaluate_attn(input_sents, args, model, tokenizer):
     # Loop to handle MNLI double evaluation (matched, mis-matched)
     eval_task_names = (args.task_name,)
     eval_outputs_dirs = (args.output_dir,)
 
     results = {}
     for eval_task, eval_output_dir in zip(eval_task_names, eval_outputs_dirs):
-        eval_dataset = load_and_cache_examples(args, eval_task, tokenizer, evaluate=True)
+        eval_dataset = load_and_cache_examples(input_sents, args, eval_task, tokenizer, evaluate=True)
 
         if not os.path.exists(eval_output_dir) and args.local_rank in [-1, 0]:
             os.makedirs(eval_output_dir)
@@ -83,6 +83,7 @@ def evaluate_attn(args, model, tokenizer):
         nb_eval_steps = 0
         preds = None
         out_label_ids = None
+        
         for batch in tqdm(eval_dataloader, desc="Evaluating"):
             model.eval()
             batch = tuple(t.to(args.device) for t in batch)
@@ -94,8 +95,6 @@ def evaluate_attn(args, model, tokenizer):
                     inputs['token_type_ids'] = batch[2] if args.model_type in ['bert', 'xlnet'] else None  # XLM, DistilBERT and RoBERTa don't use segment_ids
                 outputs = model(**inputs)
                 tmp_eval_loss, logits = outputs[:2]
-                #attention_weights = outputs[-1]
-                #layers_num = len(attention_weights)
                 eval_loss += tmp_eval_loss.mean().item()
             nb_eval_steps += 1
             if preds is None:
@@ -110,13 +109,11 @@ def evaluate_attn(args, model, tokenizer):
             preds = np.argmax(preds, axis=1)
         elif args.output_mode == "regression":
             preds = np.squeeze(preds)
-        result = compute_metrics(eval_task, preds, out_label_ids)
-        results.update(result)
 
 
-    return results
+    return eval_loss
 
-def load_and_cache_examples(args, task, tokenizer, evaluate=False):
+def load_and_cache_examples(input_sents, args, task, tokenizer, evaluate=False):
     if args.local_rank not in [-1, 0] and not evaluate:
         torch.distributed.barrier()  # Make sure only the first process in distributed training process the dataset, and the others will use the cache
 
@@ -127,7 +124,7 @@ def load_and_cache_examples(args, task, tokenizer, evaluate=False):
     if task in ['mnli', 'mnli-mm'] and args.model_type in ['roberta']:
         # HACK(label indices are swapped in RoBERTa pretrained model)
         label_list[1], label_list[2] = label_list[2], label_list[1] 
-    examples = processor.get_dev_examples(args.data_dir) if evaluate else processor.get_train_examples(args.data_dir)
+    examples = processor.get_inference_examples(input_sents) 
     features = convert_examples_to_features(examples,
                                             tokenizer,
                                             label_list=label_list,
@@ -168,8 +165,8 @@ class Parser:
         self.model_name_or_path = 'roberta-base'
         self.max_seq_length = 128
         self.output_mode = 'classification'
-def main():
-    import pdb;pdb.set_trace()
+
+def load_model():
     args = Parser()
     # Setup CUDA, GPU & distributed training
     if args.local_rank == -1 or args.no_cuda:
@@ -190,8 +187,14 @@ def main():
     tokenizer = tokenizer_class.from_pretrained(args.output_dir, do_lower_case=args.do_lower_case)
     model = model_class.from_pretrained(args.output_dir)
     model.to(args.device)
-    result = evaluate_attn(args,model, tokenizer)
-    print(result)
+    return tokenizer, model, args
+
+def get_loss(input_sents, model, tokenizer, args):
+    loss = evaluate_attn(input_sents, args,model, tokenizer)
+    return loss
 
 if __name__ == "__main__":
-    main()
+    tokenizer, model, args = load_model()
+    input_sents = [['you love me .','0'],['what do you want to say ?','1']]*32
+    loss = get_loss(input_sents, model, tokenizer, args)
+    print(loss)
