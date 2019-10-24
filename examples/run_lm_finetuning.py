@@ -28,6 +28,7 @@ import os
 import pickle
 import random
 import re
+import itertools
 import shutil
 import copy
 import numpy as np
@@ -49,6 +50,7 @@ from transformers import (WEIGHTS_NAME, AdamW, WarmupLinearSchedule,
                                   RobertaConfig, RobertaForMaskedLM, RobertaTokenizer,
                                   DistilBertConfig, DistilBertForMaskedLM, DistilBertTokenizer)
 
+from simplex_sdk import SimplexClient
 
 logger = logging.getLogger(__name__)
 
@@ -66,8 +68,7 @@ class TextDataset(Dataset):
     def __init__(self, tokenizer, file_path='train', block_size=512):
         assert os.path.isfile(file_path)
         directory, filename = os.path.split(file_path)
-        cached_features_file = os.path.join(directory, 'cached_lm_' + str(block_size) + '_' + filename)
-
+        cached_features_file = os.path.join(directory, 'slot_cached_lm_' + str(block_size) + '_' + filename)
         if os.path.exists(cached_features_file):
             logger.info("Loading features from cached file %s", cached_features_file)
             with open(cached_features_file, 'rb') as handle:
@@ -75,6 +76,7 @@ class TextDataset(Dataset):
         else:
             logger.info("Creating features from dataset file at %s", directory)
             self.examples = []
+            slot_model = self.get_slot_model()
             with open(file_path, encoding="utf-8") as f:
                 #text = f.read()
                 textlines = f.readlines()
@@ -82,21 +84,92 @@ class TextDataset(Dataset):
             for text in textlines:
                 text = text.strip().lower()
                 tokenized_text = tokenizer.tokenize(text)
+                token_pointer = self.get_token2char_mapping(tokenized_text, text)
+                slot_mask = self.get_slot_mask(text, slot_model)
+                slot_idx = self.get_slot_idx(''.join([str(ch) for ch in slot_mask]))
+                slot_idx_ = sorted(slot_idx)
+                tokenized_text_slot_mask = [0]*len(tokenized_text)
+                for slot in slot_idx_:
+                    start_idx, end_idx = slot[0], slot[1]
+                    for i,item in enumerate(token_pointer):
+                        start, end = item[0], item[1]
+                        if start >= start_idx and end <= end_idx:
+                            tokenized_text_slot_mask[i] = 1
+                # can not align the length
                 if len(tokenized_text) > max_seq_length - 2:
                     tokenized_text = tokenized_text[:max_seq_length]
+                    tokenized_text_slot_mask = tokenized_text_slot_mask[:max_seq_length]
                 else:
                     padding_num = max_seq_length - 2 - len(tokenized_text)
                     tokenized_text.extend(['[PAD]']*padding_num)
+                    tokenized_text_slot_mask.extend([0]*padding_num)
+
                 tokenized_text.insert(0,'[CLS]')
                 tokenized_text.append('[SEP]')
 
+                tokenized_text_slot_mask.insert(0,0)
+                tokenized_text_slot_mask.append(0)
                 tokenized_text_ids = tokenizer.convert_tokens_to_ids(tokenized_text)
-                self.examples.append(tokenized_text_ids)
+                self.examples.append([tokenized_text_ids,tokenized_text_slot_mask])
 
             logger.info("Saving features into cached file %s", cached_features_file)
             with open(cached_features_file, 'wb') as handle:
                 pickle.dump(self.examples, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    
+    def get_slot_idx(self,data):
+        pattern = '1+'
+        start_idx=[i.start() for i in re.finditer(pattern, data)]
+        char_len = [(k, len(list(g))) for k, g in itertools.groupby(data)]
+        char_len_filter = [item for item in char_len if item[0] == '1']
+        res = []
+        for start, len_ in zip(start_idx,char_len_filter):
+            res.append((start, start+len_[1]))
+        return res
+    
+    # get text index from token index
+    def get_token2char_mapping_(self, token_list, text):
+        rs = []
+        text = text.lower()
+        idx = 0
+        for t in token_list:
+            rs.append(idx)
+            while idx < len(text) and text[idx] == ' ':
+                idx += 1
+            t = t.replace("##", "")
+            idx += len(t)
+        rs.append(len(text))
+        return rs
+    def get_token2char_mapping(self, token_list, text):
+        offset = []
+        start = 0
+        for token in token_list:
+            token = token.replace('##','')
+            end = start + len(token)
+            if end < len(text) and text[end] == ' ':
+                end += 1
+            offset.append((start,end))
+            start = end
+        return offset
 
+    def get_slot_model(self):
+        model = SimplexClient("CarSlotExtractAggregate", namespace='dev')
+        return model
+
+    def get_slot_mask(self, data, model):
+        kwargs = {}
+        kwargs['combine_rule'] = 'no_overhead'  # all / rule_pruning / no_overhead
+        res = model.predict(data, **kwargs)
+        mask = [0] * len(data)
+        type_list = ['车系','厂商','品牌','配置']
+        for item in res:
+            type_name = item['key'].split('.')[0]
+            if type_name in type_list:
+                start = item['startOffset']
+                end = item['endOffset']
+                for i in range(start, end + 1):
+                    mask[i] = 1
+        return mask
+    
     def __len__(self):
         return len(self.examples)
 
@@ -188,6 +261,12 @@ def mask_tokens_custom(inputs, tokenizer, args):
     inputs[indices_random] = random_words[indices_random]
 
     # The rest of the time (10% of the time) we keep the masked input tokens unchanged
+    return inputs, labels
+
+def mask_tokens_custom_term(inputs, tokenizer, slot_mask, args):
+    labels = inputs.clone()
+    slot_mask_ = torch.tensor(slot_mask, dtype=bool)
+    inputs[slot_mask_] = tokenizer.convert_tokens_to_ids(tokenizer.mask_token)
     return inputs, labels
 
 def print_preds(batch_inputs, batch_labels, batch_pred_labels, tokenizer):
@@ -407,9 +486,9 @@ def inference(args, model, tokenizer, prefix=""):
     nb_eval_steps = 0
     model.eval()
     for batch in tqdm(eval_dataloader, desc="Evaluating"):
-        raw_batch = copy.deepcopy(batch)
-        inputs, labels = mask_tokens_custom(batch, tokenizer, args) if args.mlm else (batch, batch)
-        batch = batch.to(args.device)
+        raw_batch = copy.deepcopy(batch[:,0,:])
+        inputs, labels = mask_tokens_custom_term(batch[:,0,:], tokenizer, batch[:,1,:], args) if args.mlm else (batch, batch)
+        batch = batch[:,0,:].to(args.device)
         inputs = inputs.to(args.device)
         labels = labels.to(args.device)
         with torch.no_grad():
@@ -512,7 +591,7 @@ def main():
                         help="Overwrite the content of the output directory")
     parser.add_argument('--overwrite_cache', action='store_true',
                         help="Overwrite the cached training and evaluation sets")
-    parser.add_argument('--seed', type=int, default=42,
+    parser.add_argument('--seed', type=int, default=44,
                         help="random seed for initialization")
 
     parser.add_argument('--fp16', action='store_true',
@@ -627,7 +706,6 @@ def main():
         for checkpoint in checkpoints:
             global_step = checkpoint.split('-')[-1] if len(checkpoints) > 1 else ""
             prefix = checkpoint.split('/')[-1] if checkpoint.find('checkpoint') != -1 else ""
-            
             model = model_class.from_pretrained(checkpoint)
             model.to(args.device)
             result = inference(args, model, tokenizer, prefix=prefix)
