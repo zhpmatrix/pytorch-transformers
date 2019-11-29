@@ -53,9 +53,11 @@ class PretrainedConfig(object):
         self.num_labels = kwargs.pop('num_labels', 2)
         self.output_attentions = kwargs.pop('output_attentions', False)
         self.output_hidden_states = kwargs.pop('output_hidden_states', False)
-        self.torchscript = kwargs.pop('torchscript', False)
+        self.output_past = kwargs.pop('output_past', True)  # Not used by all models
+        self.torchscript = kwargs.pop('torchscript', False)  # Only used by PyTorch models
         self.use_bfloat16 = kwargs.pop('use_bfloat16', False)
         self.pruned_heads = kwargs.pop('pruned_heads', {})
+        self.is_decoder = kwargs.pop('is_decoder', False)
 
     def save_pretrained(self, save_directory):
         """ Save a configuration object to the directory `save_directory`, so that it
@@ -92,6 +94,9 @@ class PretrainedConfig(object):
             force_download: (`optional`) boolean, default False:
                 Force to (re-)download the model weights and configuration files and override the cached versions if they exists.
 
+            resume_download: (`optional`) boolean, default False:
+                Do not delete incompletely recieved file. Attempt to resume the download if such a file exists.
+
             proxies: (`optional`) dict, default None:
                 A dictionary of proxy servers to use by protocol or endpoint, e.g.: {'http': 'foo.bar:3128', 'http://hostname': 'foo.bar:4012'}.
                 The proxies are used on each request.
@@ -118,6 +123,7 @@ class PretrainedConfig(object):
         """
         cache_dir = kwargs.pop('cache_dir', None)
         force_download = kwargs.pop('force_download', False)
+        resume_download = kwargs.pop('resume_download', False)
         proxies = kwargs.pop('proxies', None)
         return_unused_kwargs = kwargs.pop('return_unused_kwargs', False)
 
@@ -129,7 +135,8 @@ class PretrainedConfig(object):
             config_file = pretrained_model_name_or_path
         # redirect to the cache, if necessary
         try:
-            resolved_config_file = cached_path(config_file, cache_dir=cache_dir, force_download=force_download, proxies=proxies)
+            resolved_config_file = cached_path(config_file, cache_dir=cache_dir, force_download=force_download,
+                                               proxies=proxies, resume_download=resume_download)
         except EnvironmentError:
             if pretrained_model_name_or_path in cls.pretrained_config_archive_map:
                 msg = "Couldn't reach server at '{}' to download pretrained model configuration file.".format(
@@ -153,7 +160,7 @@ class PretrainedConfig(object):
         config = cls.from_json_file(resolved_config_file)
 
         if hasattr(config, 'pruned_heads'):
-            config.pruned_heads = dict((int(key), set(value)) for key, value in config.pruned_heads.items())
+            config.pruned_heads = dict((int(key), value) for key, value in config.pruned_heads.items())
 
         # Update config with kwargs if needed
         to_remove = []
@@ -164,7 +171,7 @@ class PretrainedConfig(object):
         for key in to_remove:
             kwargs.pop(key, None)
 
-        logger.info("Model config %s", config)
+        logger.info("Model config %s", str(config))
         if return_unused_kwargs:
             return config, kwargs
         else:

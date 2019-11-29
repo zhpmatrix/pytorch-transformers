@@ -26,6 +26,7 @@ from .modeling_tf_xlnet import TFXLNetModel, TFXLNetLMHeadModel, TFXLNetForSeque
 from .modeling_tf_xlm import TFXLMModel, TFXLMWithLMHeadModel, TFXLMForSequenceClassification, TFXLMForQuestionAnsweringSimple
 from .modeling_tf_roberta import TFRobertaModel, TFRobertaForMaskedLM, TFRobertaForSequenceClassification
 from .modeling_tf_distilbert import TFDistilBertModel, TFDistilBertForQuestionAnswering, TFDistilBertForMaskedLM, TFDistilBertForSequenceClassification
+from .modeling_tf_ctrl import TFCTRLModel, TFCTRLLMHeadModel
 
 from .file_utils import add_start_docstrings
 
@@ -52,6 +53,7 @@ class TFAutoModel(object):
             - contains `transfo-xl`: TFTransfoXLModel (Transformer-XL model)
             - contains `xlnet`: TFXLNetModel (XLNet model)
             - contains `xlm`: TFXLMModel (XLM model)
+            - contains `ctrl`: TFCTRLModel (CTRL model)
 
         This class cannot be instantiated using `__init__()` (throws an error).
     """
@@ -73,7 +75,7 @@ class TFAutoModel(object):
             - contains `gpt2`: TFGPT2Model (OpenAI GPT-2 model)
             - contains `transfo-xl`: TFTransfoXLModel (Transformer-XL model)
             - contains `xlnet`: TFXLNetModel (XLNet model)
-            - contains `xlm`: TFXLMModel (XLM model)
+            - contains `ctrl`: TFCTRLModel (CTRL model)
 
         Params:
             pretrained_model_name_or_path: either:
@@ -106,6 +108,9 @@ class TFAutoModel(object):
 
             force_download: (`optional`) boolean, default False:
                 Force to (re-)download the model weights and configuration files and override the cached versions if they exists.
+
+            resume_download: (`optional`) boolean, default False:
+                Do not delete incompletely recieved file. Attempt to resume the download if such a file exists.
 
             proxies: (`optional`) dict, default None:
                 A dictionary of proxy servers to use by protocol or endpoint, e.g.: {'http': 'foo.bar:3128', 'http://hostname': 'foo.bar:4012'}.
@@ -147,10 +152,12 @@ class TFAutoModel(object):
             return TFXLNetModel.from_pretrained(pretrained_model_name_or_path, *model_args, **kwargs)
         elif 'xlm' in pretrained_model_name_or_path:
             return TFXLMModel.from_pretrained(pretrained_model_name_or_path, *model_args, **kwargs)
+        elif 'ctrl' in pretrained_model_name_or_path:
+            return TFCTRLModel.from_pretrained(pretrained_model_name_or_path, *model_args, **kwargs)
 
         raise ValueError("Unrecognized model identifier in {}. Should contains one of "
                          "'bert', 'openai-gpt', 'gpt2', 'transfo-xl', 'xlnet', "
-                         "'xlm', 'roberta'".format(pretrained_model_name_or_path))
+                         "'xlm', 'roberta', 'ctrl'".format(pretrained_model_name_or_path))
 
 
 class TFAutoModelWithLMHead(object):
@@ -173,6 +180,7 @@ class TFAutoModelWithLMHead(object):
             - contains `transfo-xl`: TFTransfoXLLMHeadModel (Transformer-XL model)
             - contains `xlnet`: TFXLNetLMHeadModel (XLNet model)
             - contains `xlm`: TFXLMWithLMHeadModel (XLM model)
+            - contains `ctrl`: TFCTRLLMHeadModel (CTRL model)
 
         This class cannot be instantiated using `__init__()` (throws an error).
     """
@@ -198,6 +206,7 @@ class TFAutoModelWithLMHead(object):
             - contains `transfo-xl`: TFTransfoXLLMHeadModel (Transformer-XL model)
             - contains `xlnet`: TFXLNetLMHeadModel (XLNet model)
             - contains `xlm`: TFXLMWithLMHeadModel (XLM model)
+            - contains `ctrl`: TFCTRLLMHeadModel (CTRL model)
 
         Params:
             pretrained_model_name_or_path: either:
@@ -230,6 +239,9 @@ class TFAutoModelWithLMHead(object):
 
             force_download: (`optional`) boolean, default False:
                 Force to (re-)download the model weights and configuration files and override the cached versions if they exists.
+
+            resume_download: (`optional`) boolean, default False:
+                Do not delete incompletely recieved file. Attempt to resume the download if such a file exists.
 
             proxies: (`optional`) dict, default None:
                 A dictionary of proxy servers to use by protocol or endpoint, e.g.: {'http': 'foo.bar:3128', 'http://hostname': 'foo.bar:4012'}.
@@ -271,10 +283,12 @@ class TFAutoModelWithLMHead(object):
             return TFXLNetLMHeadModel.from_pretrained(pretrained_model_name_or_path, *model_args, **kwargs)
         elif 'xlm' in pretrained_model_name_or_path:
             return TFXLMWithLMHeadModel.from_pretrained(pretrained_model_name_or_path, *model_args, **kwargs)
+        elif 'ctrl' in pretrained_model_name_or_path:
+            return TFCTRLLMHeadModel.from_pretrained(pretrained_model_name_or_path, *model_args, **kwargs)
 
         raise ValueError("Unrecognized model identifier in {}. Should contains one of "
                          "'bert', 'openai-gpt', 'gpt2', 'transfo-xl', 'xlnet', "
-                         "'xlm', 'roberta'".format(pretrained_model_name_or_path))
+                         "'xlm', 'roberta', 'ctrl'".format(pretrained_model_name_or_path))
 
 
 class TFAutoModelForSequenceClassification(object):
@@ -351,6 +365,9 @@ class TFAutoModelForSequenceClassification(object):
 
             force_download: (`optional`) boolean, default False:
                 Force to (re-)download the model weights and configuration files and override the cached versions if they exists.
+
+            resume_download: (`optional`) boolean, default False:
+                Do not delete incompletely recieved file. Attempt to resume the download if such a file exists.
 
             proxies: (`optional`) dict, default None:
                 A dictionary of proxy servers to use by protocol or endpoint, e.g.: {'http': 'foo.bar:3128', 'http://hostname': 'foo.bar:4012'}.
@@ -463,6 +480,9 @@ class TFAutoModelForQuestionAnswering(object):
 
             force_download: (`optional`) boolean, default False:
                 Force to (re-)download the model weights and configuration files and override the cached versions if they exists.
+
+            resume_download: (`optional`) boolean, default False:
+                Do not delete incompletely recieved file. Attempt to resume the download if such a file exists.
 
             proxies: (`optional`) dict, default None:
                 A dictionary of proxy servers to use by protocol or endpoint, e.g.: {'http': 'foo.bar:3128', 'http://hostname': 'foo.bar:4012'}.
