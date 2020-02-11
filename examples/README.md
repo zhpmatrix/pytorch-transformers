@@ -4,25 +4,27 @@ In this section a few examples are put together. All of these examples work for 
 similar API between the different models.
 
 **Important**  
-To run the latest versions of the examples, you have to install from source. Execute the following steps in a new virtual environment:
+To run the latest versions of the examples, you have to install from source and install some specific requirements for the examples.
+Execute the following steps in a new virtual environment:
 
 ```bash
 git clone https://github.com/huggingface/transformers
 cd transformers
-pip install [--editable] .
+pip install .
+pip install -r ./examples/requirements.txt
 ```
 
 | Section                    | Description                                                                                                                                                |
 |----------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | [TensorFlow 2.0 models on GLUE](#TensorFlow-2.0-Bert-models-on-GLUE) | Examples running BERT TensorFlow 2.0 model on the GLUE tasks. 
-| [Language Model fine-tuning](#language-model-fine-tuning) | Fine-tuning the library models for language modeling on a text dataset. Causal language modeling for GPT/GPT-2, masked language modeling for BERT/RoBERTa. |
-| [Language Generation](#language-generation) | Conditional text generation using the auto-regressive models of the library: GPT, GPT-2, Transformer-XL and XLNet.                                         |
-| [GLUE](#glue) | Examples running BERT/XLM/XLNet/RoBERTa on the 9 GLUE tasks. Examples feature distributed training as well as half-precision.                              |
-| [SQuAD](#squad) | Using BERT/RoBERTa/XLNet/XLM for question answering, examples with distributed training.                                                                                  |
-| [Multiple Choice](#multiple-choice) | Examples running BERT/XLNet/RoBERTa on the SWAG/RACE/ARC tasks. 
-| [Named Entity Recognition](#named-entity-recognition) | Using BERT for Named Entity Recognition (NER) on the CoNLL 2003 dataset, examples with distributed training.                                                                                  |
+| [Language Model training](#language-model-training) | Fine-tuning (or training from scratch) the library models for language modeling on a text dataset. Causal language modeling for GPT/GPT-2, masked language modeling for BERT/RoBERTa. |
+| [Language Generation](#language-generation) | Conditional text generation using the auto-regressive models of the library: GPT, GPT-2, Transformer-XL and XLNet. |
+| [GLUE](#glue) | Examples running BERT/XLM/XLNet/RoBERTa on the 9 GLUE tasks. Examples feature distributed training as well as half-precision. |
+| [SQuAD](#squad) | Using BERT/RoBERTa/XLNet/XLM for question answering, examples with distributed training. |
+| [Multiple Choice](#multiple-choice) | Examples running BERT/XLNet/RoBERTa on the SWAG/RACE/ARC tasks. |
+| [Named Entity Recognition](#named-entity-recognition) | Using BERT for Named Entity Recognition (NER) on the CoNLL 2003 dataset, examples with distributed training. |
 | [XNLI](#xnli) | Examples running BERT/XLM on the XNLI benchmark. |
-| [Abstractive summarization](#abstractive-summarization) | Fine-tuning the library models for abstractive summarization tasks on the CNN/Daily Mail dataset. |
+| [Adversarial evaluation of model performances](#adversarial-evaluation-of-model-performances) | Testing a model with adversarial evaluation of natural language inference on the Heuristic Analysis for NLI Systems (HANS) dataset (McCoy et al., 2019.) |
 
 ## TensorFlow 2.0 Bert models on GLUE
 
@@ -42,20 +44,20 @@ Quick benchmarks from the script (no other modifications):
 | Titan V | AMP | 26s | 0.8281/0.8568/0.8411 |
 | V100    | FP32 | 35s | 0.8646/0.8359/0.8464 |
 | V100    | AMP | 22s | 0.8646/0.8385/0.8411 |
-| 1080 Ti | FP32 | 55s | - | 
+| 1080 Ti | FP32 | 55s | - |
 
 Mixed precision (AMP) reduces the training time considerably for the same hardware and hyper-parameters (same batch size was used).
 
-## Language model fine-tuning
+## Language model training
 
-Based on the script [`run_lm_finetuning.py`](https://github.com/huggingface/transformers/blob/master/examples/run_lm_finetuning.py).
+Based on the script [`run_language_modeling.py`](https://github.com/huggingface/transformers/blob/master/examples/run_language_modeling.py).
 
-Fine-tuning the library models for language modeling on a text dataset for GPT, GPT-2, BERT and RoBERTa (DistilBERT 
+Fine-tuning (or training from scratch) the library models for language modeling on a text dataset for GPT, GPT-2, BERT and RoBERTa (DistilBERT 
 to be added soon). GPT and GPT-2 are fine-tuned using a causal language modeling (CLM) loss while BERT and RoBERTa 
 are fine-tuned using a masked language modeling (MLM) loss.
 
 Before running the following example, you should get a file that contains text on which the language model will be
-fine-tuned. A good example of such text is the [WikiText-2 dataset](https://blog.einstein.ai/the-wikitext-long-term-dependency-language-modeling-dataset/).
+trained or fine-tuned. A good example of such text is the [WikiText-2 dataset](https://blog.einstein.ai/the-wikitext-long-term-dependency-language-modeling-dataset/).
 
 We will refer to two different files: `$TRAIN_FILE`, which contains text for training, and `$TEST_FILE`, which contains
 text that will be used for evaluation.
@@ -69,7 +71,7 @@ the tokenization). The loss here is that of causal language modeling.
 export TRAIN_FILE=/path/to/dataset/wiki.train.raw
 export TEST_FILE=/path/to/dataset/wiki.test.raw
 
-python run_lm_finetuning.py \
+python run_language_modeling.py \
     --output_dir=output \
     --model_type=gpt2 \
     --model_name_or_path=gpt2 \
@@ -97,7 +99,7 @@ We use the `--mlm` flag so that the script may change its loss function.
 export TRAIN_FILE=/path/to/dataset/wiki.train.raw
 export TEST_FILE=/path/to/dataset/wiki.test.raw
 
-python run_lm_finetuning.py \
+python run_language_modeling.py \
     --output_dir=output \
     --model_type=roberta \
     --model_name_or_path=roberta-base \
@@ -132,26 +134,26 @@ Fine-tuning the library models for sequence classification on the GLUE benchmark
 Evaluation](https://gluebenchmark.com/). This script can fine-tune the following models: BERT, XLM, XLNet and RoBERTa. 
 
 GLUE is made up of a total of 9 different tasks. We get the following results on the dev set of the benchmark with an
-uncased  BERT base model (the checkpoint `bert-base-uncased`). All experiments ran on 8 V100 GPUs with a total train
-batch size of 24. Some of these tasks have a small dataset and training can lead to high variance in the results
+uncased  BERT base model (the checkpoint `bert-base-uncased`). All experiments ran single V100 GPUs with a total train
+batch sizes between 16 and 64. Some of these tasks have a small dataset and training can lead to high variance in the results
 between different runs. We report the median on 5 runs (with different seeds) for each of the metrics.
 
 | Task  | Metric                       | Result      |
 |-------|------------------------------|-------------|
-| CoLA  | Matthew's corr               | 48.87       |
-| SST-2 | Accuracy                     | 91.74       |
-| MRPC  | F1/Accuracy                  | 90.70/86.27 |
-| STS-B | Person/Spearman corr.        | 91.39/91.04 |
-| QQP   | Accuracy/F1                  | 90.79/87.66 |
-| MNLI  | Matched acc./Mismatched acc. | 83.70/84.83 |
-| QNLI  | Accuracy                     | 89.31       |
-| RTE   | Accuracy                     | 71.43       |
-| WNLI  | Accuracy                     | 43.66       |
+| CoLA  | Matthew's corr               | 49.23       |
+| SST-2 | Accuracy                     | 91.97       |
+| MRPC  | F1/Accuracy                  | 89.47/85.29 |
+| STS-B | Person/Spearman corr.        | 83.95/83.70 |
+| QQP   | Accuracy/F1                  | 88.40/84.31 |
+| MNLI  | Matched acc./Mismatched acc. | 80.61/81.08 |
+| QNLI  | Accuracy                     | 87.46       |
+| RTE   | Accuracy                     | 61.73       |
+| WNLI  | Accuracy                     | 45.07       |
 
 Some of these results are significantly different from the ones reported on the test set
 of GLUE benchmark on the website. For QQP and WNLI, please refer to [FAQ #12](https://gluebenchmark.com/faq) on the webite.
 
-Before running anyone of these GLUE tasks you should download the
+Before running any one of these GLUE tasks you should download the
 [GLUE data](https://gluebenchmark.com/tasks) by running
 [this script](https://gist.github.com/W4ngatang/60c2bdb54d156a41194446737ce03e2e)
 and unpack it to some directory `$GLUE_DIR`.
@@ -193,7 +195,7 @@ since the data processor for each task inherits from the base class DataProcesso
 The following examples fine-tune BERT on the Microsoft Research Paraphrase Corpus (MRPC) corpus and runs in less 
 than 10 minutes on a single K-80 and in 27 seconds (!) on single tesla V100 16GB with apex installed.
 
-Before running anyone of these GLUE tasks you should download the
+Before running any one of these GLUE tasks you should download the
 [GLUE data](https://gluebenchmark.com/tasks) by running
 [this script](https://gist.github.com/W4ngatang/60c2bdb54d156a41194446737ce03e2e)
 and unpack it to some directory `$GLUE_DIR`.
@@ -356,15 +358,21 @@ eval_loss = 0.44457291918821606
 
 Based on the script [`run_squad.py`](https://github.com/huggingface/transformers/blob/master/examples/run_squad.py).
 
-#### Fine-tuning on SQuAD
+#### Fine-tuning BERT on SQuAD1.0
 
-This example code fine-tunes BERT on the SQuAD dataset. It runs in 24 min (with BERT-base) or 68 min (with BERT-large) 
+This example code fine-tunes BERT on the SQuAD1.0 dataset. It runs in 24 min (with BERT-base) or 68 min (with BERT-large) 
 on a single tesla V100 16GB. The data for SQuAD can be downloaded with the following links and should be saved in a 
 $SQUAD_DIR directory.
 
 * [train-v1.1.json](https://rajpurkar.github.io/SQuAD-explorer/dataset/train-v1.1.json)
 * [dev-v1.1.json](https://rajpurkar.github.io/SQuAD-explorer/dataset/dev-v1.1.json)
 * [evaluate-v1.1.py](https://github.com/allenai/bi-att-flow/blob/master/squad/evaluate-v1.1.py)
+
+And for SQuAD2.0, you need to download:
+
+- [train-v2.0.json](https://rajpurkar.github.io/SQuAD-explorer/dataset/train-v2.0.json)
+- [dev-v2.0.json](https://rajpurkar.github.io/SQuAD-explorer/dataset/dev-v2.0.json)
+- [evaluate-v2.0.py](https://worksheets.codalab.org/rest/bundles/0x6b567e1cf2e041ec80d7098f031c5c9e/contents/blob/)
 
 ```bash
 export SQUAD_DIR=/path/to/SQUAD
@@ -395,12 +403,12 @@ exact_match = 81.22
 #### Distributed training
 
 
-Here is an example using distributed training on 8 V100 GPUs and Bert Whole Word Masking uncased model to reach a F1 > 93 on SQuAD:
+Here is an example using distributed training on 8 V100 GPUs and Bert Whole Word Masking uncased model to reach a F1 > 93 on SQuAD1.1:
 
 ```bash
-python -m torch.distributed.launch --nproc_per_node=8 run_squad.py \
+python -m torch.distributed.launch --nproc_per_node=8 ./examples/run_squad.py \
     --model_type bert \
-    --model_name_or_path bert-base-cased \
+    --model_name_or_path bert-large-uncased-whole-word-masking \
     --do_train \
     --do_eval \
     --do_lower_case \
@@ -410,9 +418,9 @@ python -m torch.distributed.launch --nproc_per_node=8 run_squad.py \
     --num_train_epochs 2 \
     --max_seq_length 384 \
     --doc_stride 128 \
-    --output_dir ../models/wwm_uncased_finetuned_squad/ \
-    --per_gpu_train_batch_size 24 \
-    --gradient_accumulation_steps 12
+    --output_dir ./examples/models/wwm_uncased_finetuned_squad/ \
+    --per_gpu_eval_batch_size=3   \
+    --per_gpu_train_batch_size=3   \
 ```
 
 Training with the previously defined hyper-parameters yields the following results:
@@ -427,7 +435,9 @@ This fine-tuned model is available as a checkpoint under the reference
 
 #### Fine-tuning XLNet on SQuAD
 
-This example code fine-tunes XLNet on the SQuAD dataset. See above to download the data for SQuAD .
+This example code fine-tunes XLNet on both SQuAD1.0 and SQuAD2.0 dataset. See above to download the data for SQuAD .
+
+##### Command for SQuAD1.0:
 
 ```bash
 export SQUAD_DIR=/path/to/SQUAD
@@ -450,7 +460,32 @@ python /data/home/hlu/transformers/examples/run_squad.py \
     --save_steps 5000
 ```
 
-Training with the previously defined hyper-parameters yields the following results:
+##### Command for SQuAD2.0:
+
+```bash
+export SQUAD_DIR=/path/to/SQUAD
+
+python run_squad.py \
+    --model_type xlnet \
+    --model_name_or_path xlnet-large-cased \
+    --do_train \
+    --do_eval \
+    --version_2_with_negative \
+    --train_file $SQUAD_DIR/train-v2.0.json \
+    --predict_file $SQUAD_DIR/dev-v2.0.json \
+    --learning_rate 3e-5 \
+    --num_train_epochs 4 \
+    --max_seq_length 384 \
+    --doc_stride 128 \
+    --output_dir ./wwm_cased_finetuned_squad/ \
+    --per_gpu_eval_batch_size=2  \
+    --per_gpu_train_batch_size=2   \
+    --save_steps 5000
+```
+
+Larger batch size may improve the performance while costing more memory.
+
+##### Results for SQuAD1.0 with the previously defined hyper-parameters:
 
 ```python
 {
@@ -463,9 +498,28 @@ Training with the previously defined hyper-parameters yields the following resul
 }
 ```
 
+##### Results for SQuAD2.0 with the previously defined hyper-parameters:
+
+```python
+{
+"exact": 80.4177545691906,
+"f1": 84.07154997729623,
+"total": 11873,
+"HasAns_exact": 76.73751686909581,
+"HasAns_f1": 84.05558584352873,
+"HasAns_total": 5928,
+"NoAns_exact": 84.0874684608915,
+"NoAns_f1": 84.0874684608915,
+"NoAns_total": 5945
+}
+```
+
+
+
 ## Named Entity Recognition
 
-Based on the script [`run_ner.py`](https://github.com/huggingface/transformers/blob/master/examples/run_ner.py).
+Based on the scripts [`run_ner.py`](https://github.com/huggingface/transformers/blob/master/examples/run_ner.py) for Pytorch and
+[`run_tf_ner.py`](https://github.com/huggingface/transformers/blob/master/examples/run_tf_ner.py) for Tensorflow 2.
 This example fine-tune Bert Multilingual on GermEval 2014 (German NER).
 Details and results for the fine-tuning provided by @stefan-it.
 
@@ -510,7 +564,7 @@ The GermEval 2014 dataset has much more labels than CoNLL-2002/2003 datasets, so
 cat train.txt dev.txt test.txt | cut -d " " -f 2 | grep -v "^$"| sort | uniq > labels.txt
 ```
 
-### Training
+### Prepare the run
 
 Additional environment variables must be set:
 
@@ -521,6 +575,8 @@ export NUM_EPOCHS=3
 export SAVE_STEPS=750
 export SEED=1
 ```
+
+### Run the Pytorch version
 
 To start training, just run:
 
@@ -542,7 +598,7 @@ python3 run_ner.py --data_dir ./ \
 
 If your GPU supports half-precision training, just add the `--fp16` flag. After training, the model will be both evaluated on development and test datasets.
 
-### Evaluation
+#### Evaluation
 
 Evaluation on development dataset outputs the following for our example:
 
@@ -564,7 +620,7 @@ On the test dataset the following results could be achieved:
 10/04/2019 00:42:42 - INFO - __main__ -     recall = 0.8624150210424085
 ```
 
-### Comparing BERT (large, cased), RoBERTa (large, cased) and DistilBERT (base, uncased)
+#### Comparing BERT (large, cased), RoBERTa (large, cased) and DistilBERT (base, uncased)
 
 Here is a small comparison between BERT (large, cased), RoBERTa (large, cased) and DistilBERT (base, uncased) with the same hyperparameters as specified in the [example documentation](https://huggingface.co/transformers/examples.html#named-entity-recognition) (one run):
 
@@ -574,39 +630,77 @@ Here is a small comparison between BERT (large, cased), RoBERTa (large, cased) a
 | `roberta-large`                  | 95.96 | 91.87
 | `distilbert-base-uncased` | 94.34 | 90.32
 
-## Abstractive summarization
+### Run the Tensorflow 2 version
 
-Based on the script
-[`run_summarization_finetuning.py`](https://github.com/huggingface/transformers/blob/master/examples/run_summarization_finetuning.py).
-
-Before running this script you should download **both** CNN and Daily Mail
-datasets from [Kyunghyun Cho's website](https://cs.nyu.edu/~kcho/DMQA/)  (the
-links next to "Stories") in the same folder. Then uncompress the archives by running:
+To start training, just run:
 
 ```bash
-tar -xvf cnn_stories.tgz && tar -xvf dailymail_stories.tgz
+python3 run_tf_ner.py --data_dir ./ \
+--model_type bert \
+--labels ./labels.txt \
+--model_name_or_path $BERT_MODEL \
+--output_dir $OUTPUT_DIR \
+--max_seq_length  $MAX_LENGTH \
+--num_train_epochs $NUM_EPOCHS \
+--per_device_train_batch_size $BATCH_SIZE \
+--save_steps $SAVE_STEPS \
+--seed $SEED \
+--do_train \
+--do_eval \
+--do_predict
 ```
 
-note that the finetuning script **will not work** if you do not download both
-datasets. We will refer as `$DATA_PATH` the path to where you uncompressed both
-archive.
+Such as the Pytorch version, if your GPU supports half-precision training, just add the `--fp16` flag. After training, the model will be both evaluated on development and test datasets.
 
+#### Evaluation
+
+Evaluation on development dataset outputs the following for our example:
 ```bash
-export DATA_PATH=/path/to/dataset/
+           precision    recall  f1-score   support
 
-python run_summarization_finetuning.py \
-    --output_dir=output \
-    --model_type=bert2bert \
-    --model_name_or_path=bert2bert \
-    --do_train \
-    --data_path=$DATA_PATH \
+ LOCderiv     0.7619    0.6154    0.6809        52
+  PERpart     0.8724    0.8997    0.8858      4057
+  OTHpart     0.9360    0.9466    0.9413       711
+  ORGpart     0.7015    0.6989    0.7002       269
+  LOCpart     0.7668    0.8488    0.8057       496
+      LOC     0.8745    0.9191    0.8963       235
+ ORGderiv     0.7723    0.8571    0.8125        91
+ OTHderiv     0.4800    0.6667    0.5581        18
+      OTH     0.5789    0.6875    0.6286        16
+ PERderiv     0.5385    0.3889    0.4516        18
+      PER     0.5000    0.5000    0.5000         2
+      ORG     0.0000    0.0000    0.0000         3
+
+micro avg     0.8574    0.8862    0.8715      5968
+macro avg     0.8575    0.8862    0.8713      5968
+```
+
+On the test dataset the following results could be achieved:
+```bash
+           precision    recall  f1-score   support
+
+  PERpart     0.8847    0.8944    0.8896      9397
+  OTHpart     0.9376    0.9353    0.9365      1639
+  ORGpart     0.7307    0.7044    0.7173       697
+      LOC     0.9133    0.9394    0.9262       561
+  LOCpart     0.8058    0.8157    0.8107      1150
+      ORG     0.0000    0.0000    0.0000         8
+ OTHderiv     0.5882    0.4762    0.5263        42
+ PERderiv     0.6571    0.5227    0.5823        44
+      OTH     0.4906    0.6667    0.5652        39
+ ORGderiv     0.7016    0.7791    0.7383       172
+ LOCderiv     0.8256    0.6514    0.7282       109
+      PER     0.0000    0.0000    0.0000        11
+
+micro avg     0.8722    0.8774    0.8748     13869
+macro avg     0.8712    0.8774    0.8740     13869
 ```
 
 ## XNLI
 
 Based on the script [`run_xnli.py`](https://github.com/huggingface/transformers/blob/master/examples/run_xnli.py).
 
-[XNLI](https://www.nyu.edu/projects/bowman/xnli/) is crowd-sourced dataset based on [MultiNLI](http://www.nyu.edu/projects/bowman/multinli/). It is an evaluation benchmark for cross-lingual text representations. Pairs of text are labeled with textual entailment annotations for 15 different languages (including both high-ressource language such as English and low-ressource languages such as Swahili).
+[XNLI](https://www.nyu.edu/projects/bowman/xnli/) is crowd-sourced dataset based on [MultiNLI](http://www.nyu.edu/projects/bowman/multinli/). It is an evaluation benchmark for cross-lingual text representations. Pairs of text are labeled with textual entailment annotations for 15 different languages (including both high-resource language such as English and low-resource languages such as Swahili).
 
 #### Fine-tuning on XNLI
 
@@ -640,4 +734,67 @@ Training with the previously defined hyper-parameters yields the following resul
 
 ```bash
 acc = 0.7093812375249501
+```
+
+## MM-IMDb
+
+Based on the script [`run_mmimdb.py`](https://github.com/huggingface/transformers/blob/master/examples/mm-imdb/run_mmimdb.py).
+
+[MM-IMDb](http://lisi1.unal.edu.co/mmimdb/) is a Multimodal dataset with around 26,000 movies including images, plots and other metadata.
+
+### Training on MM-IMDb
+
+```
+python run_mmimdb.py \
+    --data_dir /path/to/mmimdb/dataset/ \
+    --model_type bert \
+    --model_name_or_path bert-base-uncased \
+    --output_dir /path/to/save/dir/ \
+    --do_train \
+    --do_eval \
+    --max_seq_len 512 \
+    --gradient_accumulation_steps 20 \
+    --num_image_embeds 3 \
+    --num_train_epochs 100 \
+    --patience 5
+```
+
+## Adversarial evaluation of model performances
+
+Here is an example on evaluating a model using adversarial evaluation of natural language inference with the Heuristic Analysis for NLI Systems (HANS) dataset [McCoy et al., 2019](https://arxiv.org/abs/1902.01007). The example was gracefully provided by [Nafise Sadat Moosavi](https://github.com/ns-moosavi).
+
+The HANS dataset can be downloaded from [this location](https://github.com/tommccoy1/hans).
+
+This is an example of using test_hans.py:
+
+```bash
+export HANS_DIR=path-to-hans
+export MODEL_TYPE=type-of-the-model-e.g.-bert-roberta-xlnet-etc
+export MODEL_PATH=path-to-the-model-directory-that-is-trained-on-NLI-e.g.-by-using-run_glue.py
+
+python examples/test_hans.py \
+        --task_name hans \
+        --model_type $MODEL_TYPE \
+        --do_eval \
+        --do_lower_case \
+        --data_dir $HANS_DIR \
+        --model_name_or_path $MODEL_PATH \
+        --max_seq_length 128 \
+        -output_dir $MODEL_PATH \
+```
+
+This will create the hans_predictions.txt file in MODEL_PATH, which can then be evaluated using hans/evaluate_heur_output.py from the HANS dataset.
+
+The results of the BERT-base model that is trained on MNLI using batch size 8 and the random seed 42 on the HANS dataset is as follows:
+
+```bash
+Heuristic entailed results:
+lexical_overlap: 0.9702
+subsequence: 0.9942
+constituent: 0.9962
+
+Heuristic non-entailed results:
+lexical_overlap: 0.199
+subsequence: 0.0396
+constituent: 0.118
 ```
