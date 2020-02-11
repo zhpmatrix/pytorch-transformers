@@ -182,9 +182,12 @@ def train(args, train_dataset, model, tokenizer):
     epochs_trained = 0
     steps_trained_in_current_epoch = 0
     # Check if continuing training from a checkpoint
-    if os.path.exists(args.model_name_or_path):
+    """
+        Checkpoint Training: 添加新的超参数，需要解析global_step
+    """
+    if args.checkpoint_path:
         # set global_step to gobal_step of last saved checkpoint from model path
-        global_step = int(args.model_name_or_path.split("-")[-1].split("/")[0])
+        global_step = int(args.checkpoint_path.split("-")[-1].split("/")[0])
         epochs_trained = global_step // (len(train_dataloader) // args.gradient_accumulation_steps)
         steps_trained_in_current_epoch = global_step % (len(train_dataloader) // args.gradient_accumulation_steps)
 
@@ -350,7 +353,6 @@ def evaluate(args, model, tokenizer, prefix=""):
             preds = np.squeeze(preds)
         result = compute_metrics(eval_task, preds, out_label_ids)
         results.update(result)
-
         output_eval_file = os.path.join(eval_output_dir, prefix, "eval_results.txt")
         with open(output_eval_file, "w") as writer:
             logger.info("***** Eval results {} *****".format(prefix))
@@ -442,6 +444,13 @@ def main():
         default=None,
         type=str,
         required=True,
+        help="Path to pre-trained model or shortcut name selected in the list: " + ", ".join(ALL_MODELS),
+    )
+    parser.add_argument(
+        "--checkpoint_path",
+        default=None,
+        type=str,
+        required=False,
         help="Path to pre-trained model or shortcut name selected in the list: " + ", ".join(ALL_MODELS),
     )
     parser.add_argument(

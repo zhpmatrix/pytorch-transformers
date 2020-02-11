@@ -16,7 +16,7 @@
 
 try:
     from scipy.stats import pearsonr, spearmanr
-    from sklearn.metrics import matthews_corrcoef, f1_score
+    from sklearn.metrics import matthews_corrcoef, f1_score, classification_report
 
     _has_sklearn = True
 except (AttributeError, ImportError):
@@ -40,6 +40,10 @@ if _has_sklearn:
             "f1": f1,
             "acc_and_f1": (acc + f1) / 2,
         }
+    
+    def my_acc_and_f1(preds, labels):
+        report = classification_report(labels, preds)
+        return {'report':report}
 
     def pearson_and_spearman(preds, labels):
         pearson_corr = pearsonr(preds, labels)[0]
@@ -54,6 +58,8 @@ if _has_sklearn:
         assert len(preds) == len(labels)
         if task_name == "cola":
             return {"mcc": matthews_corrcoef(labels, preds)}
+        elif task_name == "news_cls":
+            return my_acc_and_f1(preds, labels)
         elif task_name == "sst-2":
             return {"acc": simple_accuracy(preds, labels)}
         elif task_name == "mrpc":
