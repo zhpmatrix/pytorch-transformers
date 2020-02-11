@@ -17,7 +17,7 @@
 
 import logging
 import os
-
+import json
 from ...file_utils import is_tf_available
 from .utils import DataProcessor, InputExample, InputFeatures
 
@@ -515,6 +515,44 @@ class WnliProcessor(DataProcessor):
             examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
         return examples
 
+class NewsProcessor(DataProcessor):
+    """今日头条新闻分类"""
+
+    def get_example_from_tensor_dict(self, tensor_dict):
+        """See base class."""
+        return InputExample(
+            tensor_dict["idx"].numpy(),
+            tensor_dict["sentence"].numpy().decode("utf-8"),
+            None,
+            str(tensor_dict["label"].numpy()),
+        )
+
+    def get_train_examples(self, data_dir):
+        """See base class."""
+        return self._create_examples(self._read_tsv(os.path.join(data_dir, "train.txt")), "train")
+
+    def get_dev_examples(self, data_dir):
+        """See base class."""
+        return self._create_examples(self._read_tsv(os.path.join(data_dir, "dev.txt")), "dev")
+
+    def get_labels(self):
+        """See base class."""
+        task_A_labels = ['news_culture', 'news_entertainment', 'news_sports', 'news_finance', 'news_house', 'news_car', 'news_edu', 'news_tech', 'news_travel', 'news_world', 'stock', 'news_story']
+        new_labels = ['news_military', 'news_agriculture', 'news_game']
+        task_B_labels = task_A_labels + new_labels
+        return task_A_labels
+
+    def _create_examples(self, lines, set_type):
+        """Creates examples for the training and dev sets."""
+        examples = []
+        for (i, line) in enumerate(lines):
+            guid = "%s-%s" % (set_type, i)
+            line = json.loads(line[0])
+            text_a = line['content']
+            label = line['label']
+            examples.append(InputExample(guid=guid, text_a=text_a, text_b=None, label=label))
+        return examples
+
 
 glue_tasks_num_labels = {
     "cola": 2,
@@ -526,6 +564,7 @@ glue_tasks_num_labels = {
     "qnli": 2,
     "rte": 2,
     "wnli": 2,
+    "news_cls": 12,
 }
 
 glue_processors = {
@@ -539,6 +578,7 @@ glue_processors = {
     "qnli": QnliProcessor,
     "rte": RteProcessor,
     "wnli": WnliProcessor,
+    "news_cls": NewsProcessor,
 }
 
 glue_output_modes = {
@@ -552,4 +592,5 @@ glue_output_modes = {
     "qnli": "classification",
     "rte": "classification",
     "wnli": "classification",
+    "news_cls": "classification",
 }
