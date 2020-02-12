@@ -42,7 +42,11 @@ if _has_sklearn:
         }
     
     def my_acc_and_f1(preds, labels):
-        report = classification_report(labels, preds)
+        task_A_labels = ['news_culture', 'news_entertainment', 'news_sports', 'news_finance', 'news_house', 'news_car', 'news_edu', 'news_tech', 'news_travel', 'news_world', 'stock', 'news_story']
+        task_B_labels = ['news_military', 'news_agriculture', 'news_game']
+        task_AB_labels = task_A_labels + task_B_labels
+        target_names = task_A_labels
+        report = classification_report(labels, preds, target_names = target_names)
         return {'report':report}
 
     def pearson_and_spearman(preds, labels):
