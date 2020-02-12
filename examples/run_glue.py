@@ -25,6 +25,9 @@ import random
 
 import numpy as np
 import torch
+import copy
+import torch.nn as nn
+from torch.nn import CrossEntropyLoss, MSELoss
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler, TensorDataset
 from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm, trange
@@ -89,8 +92,73 @@ ALL_MODELS = sum(
     (),
 )
 
+class CLBertForSequenceClassification(BertForSequenceClassification):
+    def __init__(self, config):
+        super().__init__(config)
+    def forward(
+        self,
+        input_ids=None,
+        attention_mask=None,
+        token_type_ids=None,
+        position_ids=None,
+        head_mask=None,
+        inputs_embeds=None,
+        labels=None,
+        pre_model=None,
+    ):
+        outputs = self.bert(
+            input_ids,
+            attention_mask=attention_mask,
+            token_type_ids=token_type_ids,
+            position_ids=position_ids,
+            head_mask=head_mask,
+            inputs_embeds=inputs_embeds,
+        )
+        pooled_output = outputs[1]
+        pooled_output = self.dropout(pooled_output)
+        logits = self.classifier(pooled_output)
+        outputs = (logits,) + outputs[2:]  # add hidden states and attention if they are here
+        return outputs
+
+class CLLoss():
+    def __init__(self, cur_num_labels, pre_num_labels, labels, pre_outputs, cur_outputs):
+        self.cur_num_labels = cur_num_labels
+        self.pre_num_labels = pre_num_labels
+        self.labels = labels
+        self.T = 2
+        self.pre_outputs = pre_outputs
+        self.cur_outputs = cur_outputs
+        self.loss_fct = CrossEntropyLoss()
+    
+    def get_outputs(self):
+        if self.labels is not None:
+            cls_loss = self.get_cls_loss()
+            dist_loss = self.get_dist_loss()
+            loss = cls_loss + dist_loss
+            self.cur_outputs = (loss,) + self.cur_outputs
+        return self.cur_outputs
+    
+    def get_cls_loss(self):
+        logits = self.cur_outputs[0]
+        cls_loss = self.loss_fct(logits.view(-1, self.cur_num_labels), self.labels.view(-1))
+        return cls_loss
+
+    def get_dist_loss(self):
+        logits = self.cur_outputs[0]
+        pred_logits = logits[:,:self.pre_num_labels]
+        tgt_logits = self.pre_outputs[0]
+        dist_loss = self.multi_class_ce_loss_with_temperature(pred_logits, tgt_logits, self.T)
+        return dist_loss
+    
+    def multi_class_ce_loss_with_temperature(self,logits, labels, T):
+        outputs = torch.log_softmax(logits/T, dim=1)
+        labels = torch.softmax(labels/T, dim=1)
+        outputs = torch.sum(outputs * labels, dim=1, keepdim=False)
+        outputs = -torch.mean(outputs, dim=0, keepdim=False)
+        return outputs
+
 MODEL_CLASSES = {
-    "bert": (BertConfig, BertForSequenceClassification, BertTokenizer),
+    "bert": (BertConfig, CLBertForSequenceClassification, BertTokenizer),
     "xlnet": (XLNetConfig, XLNetForSequenceClassification, XLNetTokenizer),
     "xlm": (XLMConfig, XLMForSequenceClassification, XLMTokenizer),
     "roberta": (RobertaConfig, RobertaForSequenceClassification, RobertaTokenizer),
@@ -100,7 +168,6 @@ MODEL_CLASSES = {
     "flaubert": (FlaubertConfig, FlaubertForSequenceClassification, FlaubertTokenizer),
 }
 
-
 def set_seed(args):
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -108,8 +175,7 @@ def set_seed(args):
     if args.n_gpu > 0:
         torch.cuda.manual_seed_all(args.seed)
 
-
-def train(args, train_dataset, model, tokenizer):
+def train(args, cur_num_labels, pre_num_labels, train_dataset, pre_model, model, tokenizer):
     """ Train the model """
     if args.local_rank in [-1, 0]:
         tb_writer = SummaryWriter(args.tb_path)
@@ -218,7 +284,9 @@ def train(args, train_dataset, model, tokenizer):
                 inputs["token_type_ids"] = (
                     batch[2] if args.model_type in ["bert", "xlnet", "albert"] else None
                 )  # XLM, DistilBERT, RoBERTa, and XLM-RoBERTa don't use segment_ids
-            outputs = model(**inputs)
+            cur_outputs = model(**inputs)
+            pre_outputs = pre_model(**inputs)
+            outputs = CLLoss(cur_num_labels, pre_num_labels, inputs['labels'], pre_outputs, cur_outputs).get_outputs()
             loss = outputs[0]  # model outputs are always tuple in transformers (see doc)
 
             if args.n_gpu > 1:
@@ -335,8 +403,8 @@ def evaluate(args, model, tokenizer, prefix=""):
                         batch[2] if args.model_type in ["bert", "xlnet", "albert"] else None
                     )  # XLM, DistilBERT, RoBERTa, and XLM-RoBERTa don't use segment_ids
                 outputs = model(**inputs)
+                import pdb;pdb.set_trace()
                 tmp_eval_loss, logits = outputs[:2]
-
                 eval_loss += tmp_eval_loss.mean().item()
             nb_eval_steps += 1
             if preds is None:
@@ -623,18 +691,27 @@ def main():
         raise ValueError("Task not found: %s" % (args.task_name))
     processor = processors[args.task_name]()
     args.output_mode = output_modes[args.task_name]
-    label_list = processor.get_labels()
-    num_labels = len(label_list)
-
+    
+    """
+        设置新增类别个数=3（军事，农业，游戏）
+    """
+    cur_label_list = processor.get_labels()
+    cur_num_labels = len(cur_label_list)
+    new_label_num = 3
+    new_label_list = cur_label_list[-new_label_num:]
+    pre_num_labels = len(cur_label_list[:-new_label_num])
+    
     # Load pretrained model and tokenizer
     if args.local_rank not in [-1, 0]:
         torch.distributed.barrier()  # Make sure only the first process in distributed training will download model & vocab
-
+    """
+        加载模型A
+    """
     args.model_type = args.model_type.lower()
-    config_class, model_class, tokenizer_class = MODEL_CLASSES[args.model_type]
-    config = config_class.from_pretrained(
+    config_class, pre_model_class, tokenizer_class = MODEL_CLASSES[args.model_type]
+    pre_config = config_class.from_pretrained(
         args.config_name if args.config_name else args.model_name_or_path,
-        num_labels=num_labels,
+        num_labels=pre_num_labels,
         finetuning_task=args.task_name,
         cache_dir=args.cache_dir if args.cache_dir else None,
     )
@@ -643,16 +720,32 @@ def main():
         do_lower_case=args.do_lower_case,
         cache_dir=args.cache_dir if args.cache_dir else None,
     )
-    model = model_class.from_pretrained(
+    pre_model = pre_model_class.from_pretrained(
         args.model_name_or_path,
         from_tf=bool(".ckpt" in args.model_name_or_path),
-        config=config,
+        config=pre_config,
         cache_dir=args.cache_dir if args.cache_dir else None,
     )
+    """
+        新建模型B
+    """
+    in_features = pre_model.classifier.in_features
+    new_classifier = nn.Linear(in_features, cur_num_labels)
+    
+    #初始化模型B的分类器，同时加载模型A的权重和偏置
+    new_classifier.weight.data.normal_(mean=0.0, std=pre_config.initializer_range)
+    new_classifier.bias.data.zero_()
+    new_classifier.weight.data[:pre_num_labels] = pre_model.classifier.weight.data
+    new_classifier.bias.data[:pre_num_labels] = pre_model.classifier.bias.data
+    
+    #更换模型B的分类器
+    model = copy.deepcopy(pre_model)
+    model.classifier = new_classifier
+    
 
     if args.local_rank == 0:
         torch.distributed.barrier()  # Make sure only the first process in distributed training will download model & vocab
-
+    pre_model.to(args.device)
     model.to(args.device)
 
     logger.info("Training/evaluation parameters %s", args)
@@ -660,7 +753,7 @@ def main():
     # Training
     if args.do_train:
         train_dataset = load_and_cache_examples(args, args.task_name, tokenizer, evaluate=False)
-        global_step, tr_loss = train(args, train_dataset, model, tokenizer)
+        global_step, tr_loss = train(args, cur_num_labels, pre_num_labels, train_dataset, pre_model, model, tokenizer)
         logger.info(" global_step = %s, average loss = %s", global_step, tr_loss)
 
     # Saving best-practices: if you use defaults names for the model, you can reload it using from_pretrained()
@@ -675,6 +768,10 @@ def main():
         model_to_save = (
             model.module if hasattr(model, "module") else model
         )  # Take care of distributed/parallel training
+        """
+            修改类别数
+        """
+        model_to_save.config.num_labels = cur_num_labels
         model_to_save.save_pretrained(args.output_dir)
         tokenizer.save_pretrained(args.output_dir)
 
@@ -682,7 +779,7 @@ def main():
         torch.save(args, os.path.join(args.output_dir, "training_args.bin"))
 
         # Load a trained model and vocabulary that you have fine-tuned
-        model = model_class.from_pretrained(args.output_dir)
+        model = pre_model_class.from_pretrained(args.output_dir)
         tokenizer = tokenizer_class.from_pretrained(args.output_dir)
         model.to(args.device)
 
@@ -701,7 +798,7 @@ def main():
             global_step = checkpoint.split("-")[-1] if len(checkpoints) > 1 else ""
             prefix = checkpoint.split("/")[-1] if checkpoint.find("checkpoint") != -1 else ""
 
-            model = model_class.from_pretrained(checkpoint)
+            model = pre_model_class.from_pretrained(checkpoint)
             model.to(args.device)
             result = evaluate(args, model, tokenizer, prefix=prefix)
             result = dict((k + "_{}".format(global_step), v) for k, v in result.items())

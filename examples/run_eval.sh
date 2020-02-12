@@ -1,4 +1,4 @@
-data_dir=/nfs/users/zhanghaipeng/data/toutiao_news/AB
+data_dir=/nfs/users/zhanghaipeng/data/toutiao_news/B
 output_dir=/nfs/users/zhanghaipeng/data/train/news_cls
 model_path=/nfs/users/zhanghaipeng/data/pt_bert_models/bert-base-chinese/
 ckpt=49000

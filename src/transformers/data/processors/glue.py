@@ -564,7 +564,7 @@ glue_tasks_num_labels = {
     "qnli": 2,
     "rte": 2,
     "wnli": 2,
-    "news_cls": 12,
+    "news_cls": 15,
 }
 
 glue_processors = {
