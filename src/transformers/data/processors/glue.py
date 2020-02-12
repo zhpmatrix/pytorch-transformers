@@ -529,18 +529,18 @@ class NewsProcessor(DataProcessor):
 
     def get_train_examples(self, data_dir):
         """See base class."""
-        return self._create_examples(self._read_tsv(os.path.join(data_dir, "train.txt")), "train")
+        return self._create_examples(self._read_tsv(os.path.join(data_dir, "train_small.txt")), "train")
 
     def get_dev_examples(self, data_dir):
         """See base class."""
-        return self._create_examples(self._read_tsv(os.path.join(data_dir, "dev.txt")), "dev")
+        return self._create_examples(self._read_tsv(os.path.join(data_dir, "dev_small.txt")), "dev")
 
     def get_labels(self):
         """See base class."""
         task_A_labels = ['news_culture', 'news_entertainment', 'news_sports', 'news_finance', 'news_house', 'news_car', 'news_edu', 'news_tech', 'news_travel', 'news_world', 'stock', 'news_story']
-        new_labels = ['news_military', 'news_agriculture', 'news_game']
-        task_B_labels = task_A_labels + new_labels
-        return task_A_labels
+        task_B_labels = ['news_military', 'news_agriculture', 'news_game']
+        task_AB_labels = task_A_labels + task_B_labels
+        return task_AB_labels
 
     def _create_examples(self, lines, set_type):
         """Creates examples for the training and dev sets."""
