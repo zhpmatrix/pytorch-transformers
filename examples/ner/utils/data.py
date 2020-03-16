@@ -40,6 +40,8 @@ class Utils(object):
             for line in reader:
                 if line != '\n':
                     lines.append(line.strip().split())
+                else:
+                    lines.append(['\n','O'])
         ann_count = 0
         str_list = []
         start, end = 0, 0
