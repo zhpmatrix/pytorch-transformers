@@ -1,5 +1,6 @@
 import re
 import os
+import pandas as pd
 from simplex_sdk import SimplexClient
 
 class Utils(object):
@@ -11,9 +12,9 @@ class Utils(object):
     def load_online_model(self):
         return SimplexClient('bert-ner-api-v1',namespace='production')
 
-    def get_ner_filenames(self, root_dir)->list:
+    def get_ner_filenames(self)->list:
         filenames = []
-        for root, dirs, files in os.walk(root_dir):
+        for root, dirs, files in os.walk(self.root_dir):
             for filename in files:
                 if filename.endswith('.name'):
                     filenames.append(os.path.join(root,filename))
@@ -86,22 +87,38 @@ class Utils(object):
         ann_writer.close()
         txt_writer.close()
     
+    def get_data_descs(self, data_path):
+        lens = []
+        with open(data_path, 'r') as reader:
+            line_str = []
+            for line in reader:
+                if line != '\n':
+                    [ch, label] = line.strip().split('\t')
+                    assert(len(ch) == 1)
+                    line_str.append(ch)
+                else:
+                    lens.append(len(''.join(line_str)))
+                    line_str = []
+        report = pd.Series(lens).describe()
+        print(report)
+        return lens
 
 if __name__ == '__main__':
     root_dir = '/data/share/ontonotes-release-5.0/data/files/data/chinese/annotations/'
-    test_root_dir = '/data/jh/notebooks/fanxiaokun/code/general_ner/data/ontonotes_data/ontonotes_raw_chinese/'
     utils = Utils(root_dir)
-    filenames = utils.get_ner_filenames(root_dir)
-    test_filenames = utils.get_ner_filenames(test_root_dir)
-    import pdb;pdb.set_trace()
+    #filenames = utils.get_ner_filenames()
 
     read_dir = '/data/jh/notebooks/fanxiaokun/code/general_ner/data/ontonotes_data/ontonotes_raw_chinese/'
     file_name = 'ctv_0078'
     save_dir = '/nfs/users/zhanghaipeng/general_ner/brat-master/data/ontonotes/V1'
-    raw_data = utils.load_format_data_conll(file_name, read_dir)
+    #raw_data = utils.load_format_data_conll(file_name, read_dir)
     #utils.get_brat_data(raw_data, save_dir, file_name)
 
     input_data = ["毛泽东  是国家主席,他生于湖南长沙，没去过美国。","新华社北京6月14日电6月14日，“2019·中国西藏发展论坛”在西藏拉萨举行。国家主席习近平发来贺信，向论坛开幕表示祝贺。","曹斌是机器学习和自然语言处理专家，香港科技大学博士。曾任职于微软研究院、Bing 搜索，担任 Cortana 首席算法科学家"]
     raw_data = utils.load_format_data_online(input_data)
     file_name = 'online'
-    utils.get_brat_data(raw_data, save_dir, file_name)
+    #utils.get_brat_data(raw_data, save_dir, file_name)
+    
+    data_path = '/nfs/users/zhanghaipeng/general_ner/data/chinese'
+    data_name = 'data_test'
+    utils.get_data_descs(os.path.join(data_path, data_name))
