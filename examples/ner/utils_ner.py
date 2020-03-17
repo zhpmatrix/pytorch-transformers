@@ -18,7 +18,8 @@
 
 import logging
 import os
-
+from itertools import chain
+from sklearn.metrics import classification_report
 
 logger = logging.getLogger(__name__)
 
@@ -58,17 +59,17 @@ def read_examples_from_file(data_dir, mode):
         words = []
         labels = []
         for line in f:
-            if line.startswith("-DOCSTART-") or line == "" or line == "\n":
+            if line == "\n":
                 if words:
                     examples.append(InputExample(guid="{}-{}".format(mode, guid_index), words=words, labels=labels))
                     guid_index += 1
                     words = []
                     labels = []
             else:
-                splits = line.split(" ")
+                splits = line.strip().split("\t")
                 words.append(splits[0])
                 if len(splits) > 1:
-                    labels.append(splits[-1].replace("\n", ""))
+                    labels.append(splits[-1])
                 else:
                     # Examples could have no label for mode = "test"
                     labels.append("O")
@@ -111,7 +112,8 @@ def convert_examples_to_features(
         tokens = []
         label_ids = []
         for word, label in zip(example.words, example.labels):
-            word_tokens = tokenizer.tokenize(word)
+            #word_tokens = tokenizer.tokenize(word)
+            word_tokens = word
             tokens.extend(word_tokens)
             # Use the real label id for the first token of the word, and padding ids for the remaining tokens
             label_ids.extend([label_map[label]] + [pad_token_label_id] * (len(word_tokens) - 1))
@@ -189,7 +191,6 @@ def convert_examples_to_features(
             logger.info("input_mask: %s", " ".join([str(x) for x in input_mask]))
             logger.info("segment_ids: %s", " ".join([str(x) for x in segment_ids]))
             logger.info("label_ids: %s", " ".join([str(x) for x in label_ids]))
-
         features.append(
             InputFeatures(input_ids=input_ids, input_mask=input_mask, segment_ids=segment_ids, label_ids=label_ids)
         )
@@ -205,3 +206,9 @@ def get_labels(path):
         return labels
     else:
         return ["O", "B-MISC", "I-MISC", "B-PER", "I-PER", "B-ORG", "I-ORG", "B-LOC", "I-LOC"]
+
+def compute_metrics(in_real_labels, in_pred_labels):
+    real_labels = list(chain(*in_real_labels)) 
+    pred_labels = list(chain(*in_pred_labels)) 
+    report = classification_report(real_labels, pred_labels)
+    return {'report':report}

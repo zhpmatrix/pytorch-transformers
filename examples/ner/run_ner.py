@@ -53,7 +53,7 @@ from transformers import (
     XLMRobertaTokenizer,
     get_linear_schedule_with_warmup,
 )
-from utils_ner import convert_examples_to_features, get_labels, read_examples_from_file
+from utils_ner import convert_examples_to_features, get_labels, read_examples_from_file, compute_metrics
 
 
 try:
@@ -92,7 +92,7 @@ def set_seed(args):
         torch.cuda.manual_seed_all(args.seed)
 
 
-def train(args, train_dataset, model, tokenizer, labels, pad_token_label_id):
+def train(args, mode, train_dataset, model, tokenizer, labels, pad_token_label_id):
     """ Train the model """
     if args.local_rank in [-1, 0]:
         tb_writer = SummaryWriter()
@@ -232,7 +232,7 @@ def train(args, train_dataset, model, tokenizer, labels, pad_token_label_id):
                     if (
                         args.local_rank == -1 and args.evaluate_during_training
                     ):  # Only evaluate when single GPU otherwise metrics may not average well
-                        results, _ = evaluate(args, model, tokenizer, labels, pad_token_label_id, mode="dev")
+                        results, _ = evaluate(args, model, tokenizer, labels, pad_token_label_id, mode)
                         for key, value in results.items():
                             tb_writer.add_scalar("eval_{}".format(key), value, global_step)
                     tb_writer.add_scalar("lr", scheduler.get_lr()[0], global_step)
@@ -328,14 +328,15 @@ def evaluate(args, model, tokenizer, labels, pad_token_label_id, mode, prefix=""
             if out_label_ids[i, j] != pad_token_label_id:
                 out_label_list[i].append(label_map[out_label_ids[i][j]])
                 preds_list[i].append(label_map[preds[i][j]])
-
-    results = {
-        "loss": eval_loss,
-        "precision": precision_score(out_label_list, preds_list),
-        "recall": recall_score(out_label_list, preds_list),
-        "f1": f1_score(out_label_list, preds_list),
-    }
-
+    if mode == 'dev': 
+        results = compute_metrics(out_label_list, preds_list)
+    else:
+        results = {
+            "loss": eval_loss,
+            "precision": precision_score(out_label_list, preds_list),
+            "recall": recall_score(out_label_list, preds_list),
+            "f1": f1_score(out_label_list, preds_list),
+        }
     logger.info("***** Eval results %s *****", prefix)
     for key in sorted(results.keys()):
         logger.info("  %s = %s", key, str(results[key]))
@@ -625,8 +626,9 @@ def main():
 
     # Training
     if args.do_train:
+        mode = 'train'
         train_dataset = load_and_cache_examples(args, tokenizer, labels, pad_token_label_id, mode="train")
-        global_step, tr_loss = train(args, train_dataset, model, tokenizer, labels, pad_token_label_id)
+        global_step, tr_loss = train(args, mode, train_dataset, model, tokenizer, labels, pad_token_label_id)
         logger.info(" global_step = %s, average loss = %s", global_step, tr_loss)
 
     # Saving best-practices: if you use defaults names for the model, you can reload it using from_pretrained()
@@ -646,7 +648,7 @@ def main():
 
         # Good practice: save your training arguments together with the trained model
         torch.save(args, os.path.join(args.output_dir, "training_args.bin"))
-
+    
     # Evaluation
     results = {}
     if args.do_eval and args.local_rank in [-1, 0]:
