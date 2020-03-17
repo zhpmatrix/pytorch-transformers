@@ -1,4 +1,6 @@
+import re
 import os
+
 class Utils(object):
     def __init__(self, root_dir):
         self.root_dir = root_dir
@@ -43,30 +45,17 @@ class Utils(object):
                 else:
                     lines.append(['\n','O'])
         ann_count = 0
-        str_list = []
-        start, end = 0, 0
-        tag = None
-        for i,item in enumerate(lines):
-            ch, label = item[0], item[1]
-            if label != 'O':
-                [loc, tmp_tag] = label.split('-')
-                if loc == 'B':
-                    start = i
-                    end = i + 1
-                    tag = tmp_tag
-                    ann_count += 1
-                    str_list.append(ch)
-                else:
-                    end += 1
-                    str_list.append(ch)
-            else:
-                if len(str_list) > 0:
-                    ann_writer.write('T'+str(ann_count)+'\t'+tag+' '+str(start)+' '+str(end)+'\t'+''.join(str_list)+'\n')
-                    str_list = []
-                    start, end = 0, 0
-                    tag = None
-        output_str = ''.join([item[0] for item in lines])
-        txt_writer.write(output_str)
+        loc_list = ''.join([label.split('-')[0] for [ch, label] in lines])
+        entity_locs = [item for item in re.finditer('BI*', loc_list)]
+        for item in entity_locs:
+            (start, end) = item.span()
+            ann_count += 1
+            entity_label = lines[start][1].split('-')[-1]
+            entity_str = ''.join([line[0] for line in lines[start:end]]) 
+            ann_str = 'T'+str(ann_count)+'\t'+entity_label+' '+str(start)+' '+str(end)+'\t'+''.join(entity_str)+'\n'
+            ann_writer.write(ann_str)
+        txt_str = ''.join([item[0] for item in lines])
+        txt_writer.write(txt_str)
         ann_writer.close()
         txt_writer.close()
 
