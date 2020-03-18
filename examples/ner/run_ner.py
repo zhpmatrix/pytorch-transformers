@@ -92,7 +92,7 @@ def set_seed(args):
         torch.cuda.manual_seed_all(args.seed)
 
 
-def train(args, mode, train_dataset, model, tokenizer, labels, pad_token_label_id):
+def train(args, train_dataset, model, tokenizer, labels, pad_token_label_id, mode):
     """ Train the model """
     if args.local_rank in [-1, 0]:
         tb_writer = SummaryWriter()
@@ -271,7 +271,9 @@ def train(args, mode, train_dataset, model, tokenizer, labels, pad_token_label_i
 
 
 def evaluate(args, model, tokenizer, labels, pad_token_label_id, mode, prefix=""):
-    eval_dataset = load_and_cache_examples(args, tokenizer, labels, pad_token_label_id, mode=mode)
+    #记载eval的数据
+    eval_data_name = 'test'
+    eval_dataset = load_and_cache_examples(args, tokenizer, labels, pad_token_label_id, mode=eval_data_name)
 
     args.eval_batch_size = args.per_gpu_eval_batch_size * max(1, args.n_gpu)
     # Note that DistributedSampler samples randomly
@@ -329,7 +331,7 @@ def evaluate(args, model, tokenizer, labels, pad_token_label_id, mode, prefix=""
                 out_label_list[i].append(label_map[out_label_ids[i][j]])
                 preds_list[i].append(label_map[preds[i][j]])
     if mode == 'dev': 
-        results = compute_metrics(out_label_list, preds_list)
+        results = compute_metrics(out_label_list, preds_list, labels)
     else:
         results = {
             "loss": eval_loss,
@@ -626,9 +628,8 @@ def main():
 
     # Training
     if args.do_train:
-        mode = 'train'
         train_dataset = load_and_cache_examples(args, tokenizer, labels, pad_token_label_id, mode="train")
-        global_step, tr_loss = train(args, mode, train_dataset, model, tokenizer, labels, pad_token_label_id)
+        global_step, tr_loss = train(args, train_dataset, model, tokenizer, labels, pad_token_label_id, mode="train")
         logger.info(" global_step = %s, average loss = %s", global_step, tr_loss)
 
     # Saving best-practices: if you use defaults names for the model, you can reload it using from_pretrained()

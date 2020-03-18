@@ -207,8 +207,9 @@ def get_labels(path):
     else:
         return ["O", "B-MISC", "I-MISC", "B-PER", "I-PER", "B-ORG", "I-ORG", "B-LOC", "I-LOC"]
 
-def compute_metrics(in_real_labels, in_pred_labels):
+def compute_metrics(in_real_labels, in_pred_labels, labels):
     real_labels = list(chain(*in_real_labels)) 
     pred_labels = list(chain(*in_pred_labels)) 
-    report = classification_report(real_labels, pred_labels)
+    labels.remove('O')
+    report = classification_report(real_labels, pred_labels, labels=labels)
     return {'report':report}
