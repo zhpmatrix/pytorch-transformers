@@ -1,6 +1,7 @@
 import re
 import os
 import pandas as pd
+from pprint import pprint
 from simplex_sdk import SimplexClient
 
 class Utils(object):
@@ -37,8 +38,23 @@ class Utils(object):
                         dot[ch] = dot.get(ch, 0) + 1
         dot_sorted = sorted(dot.items(), key=lambda x: x[1], reverse=True)
         return dot_sorted[:topk]
+    
+    def load_format_data_lines(self, read_dir, filename):
+        data_path = os.path.join(read_dir, filename+'.name')
+        lines = []
+        with open(data_path, 'r') as reader:
+            line_str = []
+            for line in reader:
+                if line != '\n':
+                    [ch, label] = line.strip().split('\t')
+                    assert(len(ch) == 1)
+                    line_str.append(ch)
+                else:
+                    lines.append(''.join(line_str))
+                    line_str = []
+        return lines
 
-    def load_format_data_conll(self, filename, read_dir):
+    def load_format_data_conll(self, read_dir, filename):
         data_path = os.path.join(read_dir, filename+'.name')
         lines = []
         with open(data_path, 'r') as reader:
@@ -48,9 +64,17 @@ class Utils(object):
                 else:
                     lines.append(['\n','O'])
         return lines
-    
-    def load_format_data_online(self, input_data):
-        results = self.model.predict(input_data)
+     
+    def write_online_predictions_to_file(self, input_data, read_dir, save_name):
+        results = []
+        batch_size = 100
+        epoch = len(input_data) // batch_size
+        for i in range(epoch):
+            tmp_input = input_data[batch_size * i : batch_size * (i+1)]
+            if i == epoch - 1:
+                tmp_input = input_data[batch_size * i:]
+            tmp_results = self.model.predict(tmp_input)
+            results.extend(tmp_results)
         lines = []
         for result, data in zip(results, input_data):
             tmp_lines = list(data)
@@ -65,14 +89,23 @@ class Utils(object):
             tmp_lines.append('\n')
             tmp_labels.append('O')
             lines.extend([[line, label] for line, label in zip(tmp_lines, tmp_labels)])
+        save_path = os.path.join(read_dir, save_name+'.name')
+        with open(save_path, 'a') as writer:
+            for line in lines:
+                [ch,_] = line
+                if ch != '\n':
+                    writer.write('\t'.join(line)+'\n')
+                else:
+                    writer.write(ch)
         return lines
 
-    def get_brat_data(self, raw_data, save_dir, save_name):
+    def get_brat_data(self, raw_data, start, end, save_dir, save_name):
         ann_path = os.path.join(save_dir, save_name+'.ann')
         txt_path = os.path.join(save_dir, save_name+'.txt')
         ann_writer = open(ann_path, 'a')
         txt_writer = open(txt_path, 'a')
         ann_count = 0
+        raw_data = raw_data[start:end]
         loc_list = ''.join([label.split('-')[0] for [ch, label] in raw_data])
         entity_locs = [item for item in re.finditer('BI*', loc_list)]
         for item in entity_locs:
@@ -106,19 +139,32 @@ class Utils(object):
 if __name__ == '__main__':
     root_dir = '/data/share/ontonotes-release-5.0/data/files/data/chinese/annotations/'
     utils = Utils(root_dir)
-    #filenames = utils.get_ner_filenames()
+    
+    input_data = ['百团大战是八路军在抗战期间发动的规模最大的一次战役。',
+                    '它由主碑，副碑，一座大型圆雕和烽火台，长城等组成。',
+                    ]
+    #model = utils.load_online_model()
+    #results = model.predict(input_data)
+    #pprint(results)
+    #exit()
 
-    read_dir = '/data/jh/notebooks/fanxiaokun/code/general_ner/data/ontonotes_data/ontonotes_raw_chinese/'
-    file_name = 'ctv_0078'
+    online = False
+    start, end = 0, 200
     save_dir = '/nfs/users/zhanghaipeng/general_ner/brat-master/data/ontonotes/V1'
-    #raw_data = utils.load_format_data_conll(file_name, read_dir)
-    #utils.get_brat_data(raw_data, save_dir, file_name)
-
-    input_data = ["毛泽东  是国家主席,他生于湖南长沙，没去过美国。","新华社北京6月14日电6月14日，“2019·中国西藏发展论坛”在西藏拉萨举行。国家主席习近平发来贺信，向论坛开幕表示祝贺。","曹斌是机器学习和自然语言处理专家，香港科技大学博士。曾任职于微软研究院、Bing 搜索，担任 Cortana 首席算法科学家"]
-    raw_data = utils.load_format_data_online(input_data)
-    file_name = 'online'
-    #utils.get_brat_data(raw_data, save_dir, file_name)
+    if not online:
+        read_dir = '/nfs/users/zhanghaipeng/general_ner/data/models/1/checkpoint-200/'
+        read_name = 'predictions'
+        save_name = 'offline'
+    else:
+        read_dir = '/nfs/users/zhanghaipeng/general_ner/data/chinese/'
+        test_name = 'input'
+        read_name = 'prediction'
+        save_name = 'online' 
+        #input_data = utils.load_format_data_lines(read_dir, test_name)
+        #utils.write_online_predictions_to_file(input_data, read_dir, read_name)
+    raw_data = utils.load_format_data_conll(read_dir, read_name)
+    utils.get_brat_data(raw_data, start, end, save_dir, save_name)
     
     data_path = '/nfs/users/zhanghaipeng/general_ner/data/chinese'
-    data_name = 'data_test'
-    utils.get_data_descs(os.path.join(data_path, data_name))
+    data_name = 'train.name'
+    #utils.get_data_descs(os.path.join(data_path, data_name))
