@@ -1,5 +1,6 @@
 import re
 import os
+import six
 import pandas as pd
 from pprint import pprint
 from simplex_sdk import SimplexClient
@@ -21,11 +22,12 @@ class Utils(object):
                     filenames.append(os.path.join(root,filename))
         return filenames
     
+    def is_chinese(self, ch):
+        if '\u4e00' <= ch <= '\u9fff':
+            return True
+        return False
+
     def get_split_dot(self, filenames):
-        def is_chinese(ch):
-            if '\u4e00' <= ch <= '\u9fff':
-                return True
-            return False
         dot = {}
         #频次最高的结束符
         topk = 11
@@ -34,11 +36,23 @@ class Utils(object):
             with open(filename, 'r') as reader:
                 for line in reader:
                     ch = line.strip()[-1]
-                    if not is_chinese(ch):
+                    if not self.is_chinese(ch):
                         dot[ch] = dot.get(ch, 0) + 1
         dot_sorted = sorted(dot.items(), key=lambda x: x[1], reverse=True)
         return dot_sorted[:topk]
     
+    def filter_data(self, read_name, save_name):
+        #特殊编码的字符统计
+        ch_set = set()
+        with open(os.path.join(self.root_dir, read_name)) as reader:
+            for line in reader:
+                if line != '\n':
+                    [ch,label] = line.strip().split('\t')
+                    if not self.is_chinese(ch):
+                        ch_set.add(ch)
+        #import pdb;pdb.set_trace()
+        return ch_set
+
     def load_format_data_lines(self, read_dir, filename):
         data_path = os.path.join(read_dir, filename+'.name')
         lines = []
@@ -137,6 +151,12 @@ class Utils(object):
         return lens
 
 if __name__ == '__main__':
+    
+    root_dir = '/nfs/users/zhanghaipeng/general_ner/data/chinese'
+    utils = Utils(root_dir)
+    utils.filter_data('dev.name','filter_data/dev.name')
+    exit()
+
     root_dir = '/data/share/ontonotes-release-5.0/data/files/data/chinese/annotations/'
     utils = Utils(root_dir)
     
@@ -144,11 +164,11 @@ if __name__ == '__main__':
     line1 = '特斯拉今年销售了50万辆车。'
     line2 = '直通达沃斯|WTO总干事：WTO不可或缺，如果没有了就需要再“发明”一个出来　　当地时间1月22日下午，世贸组织总干事阿泽维多（RobertoAzevedo）在世界经济论坛年会现场召开小型记者会。'
     line3 = '当地时间1月22日下午，世贸组织总干事阿泽维多（RobertoAzevedo）在世界经济论坛年会现场召开小型记者会。'
-    line = line4
-    model = utils.load_online_model()
-    results = model.predict([line])
-    pprint(results)
-    import pdb;pdb.set_trace()
+    line = line3
+    #model = utils.load_online_model()
+    #results = model.predict([line])
+    #pprint(results)
+    #import pdb;pdb.set_trace()
 
     online = False
     start, end = 0, 200
@@ -156,7 +176,7 @@ if __name__ == '__main__':
     if not online:
         ckpt=1300
         read_dir = '/nfs/users/zhanghaipeng/general_ner/data/models/1/checkpoint-'+str(ckpt)
-        read_name = 'predictions'
+        read_name = 'hand_prediction'
         save_name = 'offline'
     else:
         read_dir = '/nfs/users/zhanghaipeng/general_ner/data/chinese/'
