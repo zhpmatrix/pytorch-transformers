@@ -18,9 +18,10 @@
 
 import logging
 import os
+import copy
 from itertools import chain
+from utils.general_utils import GeneralUtils
 from sklearn.metrics import classification_report
-
 logger = logging.getLogger(__name__)
 
 
@@ -50,9 +51,10 @@ class InputFeatures(object):
         self.segment_ids = segment_ids
         self.label_ids = label_ids
 
+general_utils = GeneralUtils()
 
 def read_examples_from_file(data_dir, mode):
-    file_path = os.path.join(data_dir, "{}.txt".format(mode))
+    file_path = os.path.join(data_dir, "{}.name".format(mode))
     guid_index = 1
     examples = []
     with open(file_path, encoding="utf-8") as f:
@@ -67,7 +69,12 @@ def read_examples_from_file(data_dir, mode):
                     labels = []
             else:
                 splits = line.strip().split("\t")
-                words.append(splits[0])
+                ch = splits[0]
+                #英文字母转小写
+                if general_utils.is_alphabet(ch):                
+                    words.append(ch.lower())
+                else:
+                    words.append(ch)
                 if len(splits) > 1:
                     labels.append(splits[-1])
                 else:
@@ -210,6 +217,7 @@ def get_labels(path):
 def compute_metrics(in_real_labels, in_pred_labels, labels):
     real_labels = list(chain(*in_real_labels)) 
     pred_labels = list(chain(*in_pred_labels)) 
-    labels.remove('O')
-    report = classification_report(real_labels, pred_labels, labels=labels)
+    metric_labels = copy.deepcopy(labels)
+    metric_labels.remove('O')
+    report = classification_report(real_labels, pred_labels, labels=metric_labels)
     return {'report':report}
