@@ -1,5 +1,6 @@
 import os
 from pprint import pprint
+
 class Data():
     def __init__(self, save_dir, save_name, read_dir):
         self.save_dir = save_dir
@@ -12,6 +13,7 @@ class Data():
                 for ch in line:
                     writer.write('\t'.join([ch,'O'])+'\n')
                 writer.write('\n')
+    
     def get_predictions(self, expr, ckpt, read_name):
         with open(os.path.join(read_dir, str(expr), 'checkpoint-'+str(ckpt), read_name+'.name'),'r') as reader:
                 lines = reader.readlines()

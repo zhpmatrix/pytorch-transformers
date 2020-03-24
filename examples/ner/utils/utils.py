@@ -3,12 +3,14 @@ import os
 import six
 import pandas as pd
 from pprint import pprint
+from general_utils import GeneralUtils
 from simplex_sdk import SimplexClient
 
 class Utils(object):
     
     def __init__(self, root_dir):
         self.root_dir = root_dir
+        self.general_utils = GeneralUtils()
         self.model = self.load_online_model()
     
     def load_online_model(self):
@@ -22,10 +24,6 @@ class Utils(object):
                     filenames.append(os.path.join(root,filename))
         return filenames
     
-    def is_chinese(self, ch):
-        if '\u4e00' <= ch <= '\u9fff':
-            return True
-        return False
 
     def get_split_dot(self, filenames):
         dot = {}
@@ -36,22 +34,24 @@ class Utils(object):
             with open(filename, 'r') as reader:
                 for line in reader:
                     ch = line.strip()[-1]
-                    if not self.is_chinese(ch):
+                    if not self.general_utils.is_chinese(ch):
                         dot[ch] = dot.get(ch, 0) + 1
         dot_sorted = sorted(dot.items(), key=lambda x: x[1], reverse=True)
         return dot_sorted[:topk]
     
     def filter_data(self, read_name, save_name):
         #特殊编码的字符统计
-        ch_set = set()
+        ch_dict = dict()
         with open(os.path.join(self.root_dir, read_name)) as reader:
             for line in reader:
                 if line != '\n':
                     [ch,label] = line.strip().split('\t')
-                    if not self.is_chinese(ch):
-                        ch_set.add(ch)
-        #import pdb;pdb.set_trace()
-        return ch_set
+                    if not self.general_utils.is_chinese(ch):
+                        ch_dict[ch] = ch_dict.get(ch,0) + 1
+        sorted_ch_dict = sorted(ch_dict.items(),key=lambda x:x[1], reverse=True)
+        pprint(sorted_ch_dict)
+        import pdb;pdb.set_trace()
+        return ch_dict
 
     def load_format_data_lines(self, read_dir, filename):
         data_path = os.path.join(read_dir, filename+'.name')
