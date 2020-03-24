@@ -3,7 +3,7 @@ model_path=/nfs/users/zhanghaipeng/data/pt_bert_models/roberta-base
 #model_path=/nfs/users/zhanghaipeng/data/pt_bert_models/bert-base-chinese
 data_dir=/nfs/users/zhanghaipeng/general_ner/data/
 #data_dir=/data/zhanghaipeng/ner_data/
-expr=9
+expr=10
 cuda=2
 CUDA_VISIBLE_DEVICES=$cuda python run_ner.py \
 	--data_dir $data_dir/chinese/boundary_ontonotes \
@@ -12,6 +12,7 @@ CUDA_VISIBLE_DEVICES=$cuda python run_ner.py \
 	--bd_labels $data_dir/labels/aigen_boundary_labels.txt \
 	--model_name_or_path $model_path \
 	--output_dir $data_dir/models/$expr \
+	--log_dir $data_dir/logs/$expr \
 	--num_train_epochs 10 \
 	--per_gpu_train_batch_size 64 \
 	--per_gpu_eval_batch_size 64 \

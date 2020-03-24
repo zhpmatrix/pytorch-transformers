@@ -134,6 +134,27 @@ class Utils(object):
         ann_writer.close()
         txt_writer.close()
     
+    def add_boundary_tag_to_data(self, raw_data, save_dir, save_name):
+        save_path = os.path.join(save_dir, save_name+'.name')
+        loc_list = ''.join([label.split('-')[0] for [ch, label] in raw_data])
+        entity_locs = [item for item in re.finditer('BI*', loc_list)]
+        data_with_boundary = []
+        for line in raw_data:
+            line.append('O')
+            data_with_boundary.append(line)
+        for item in entity_locs:
+            (start, end) = item.span()
+            data_with_boundary[start][2] = 'B'
+            data_with_boundary[end-1][2] = 'E'
+        with open(save_path, 'a') as save_writer:
+            for line in data_with_boundary:
+                [ch, label0, label1] = line
+                if ch != '\n':
+                    save_writer.write('\t'.join(line)+'\n')
+                else:
+                    save_writer.write('\n')
+    
+    
     def get_data_descs(self, data_path):
         lens = []
         with open(data_path, 'r') as reader:
@@ -154,8 +175,8 @@ if __name__ == '__main__':
     
     root_dir = '/nfs/users/zhanghaipeng/general_ner/data/chinese'
     utils = Utils(root_dir)
-    utils.filter_data('dev.name','filter_data/dev.name')
-    exit()
+    #utils.filter_data('dev.name','filter_data/dev.name')
+    #exit()
 
     root_dir = '/data/share/ontonotes-release-5.0/data/files/data/chinese/annotations/'
     utils = Utils(root_dir)
@@ -185,9 +206,15 @@ if __name__ == '__main__':
         save_name = 'online' 
         #input_data = utils.load_format_data_lines(read_dir, test_name)
         #utils.write_online_predictions_to_file(input_data, read_dir, read_name)
-    raw_data = utils.load_format_data_conll(read_dir, read_name)
-    utils.get_brat_data(raw_data, start, end, save_dir, save_name)
+    #raw_data = utils.load_format_data_conll(read_dir, read_name)
+    #utils.get_brat_data(raw_data, start, end, save_dir, save_name)
     
     data_path = '/nfs/users/zhanghaipeng/general_ner/data/chinese'
     data_name = 'train.name'
     #utils.get_data_descs(os.path.join(data_path, data_name))
+
+    read_dir = '/nfs/users/zhanghaipeng/general_ner/data/chinese/ontonotes'
+    read_name = 'dev'
+    save_dir = '/nfs/users/zhanghaipeng/general_ner/data/chinese/boundary_ontonotes'
+    raw_data = utils.load_format_data_conll(read_dir, read_name)
+    utils.add_boundary_tag_to_data(raw_data, save_dir, read_name)

@@ -94,7 +94,7 @@ def set_seed(args):
 def train(args, train_dataset, model, tokenizer, labels, bd_labels, pad_token_label_id, mode):
     """ Train the model """
     if args.local_rank in [-1, 0]:
-        tb_writer = SummaryWriter()
+        tb_writer = SummaryWriter(args.log_dir)
 
     args.train_batch_size = args.per_gpu_train_batch_size * max(1, args.n_gpu)
     train_sampler = RandomSampler(train_dataset) if args.local_rank == -1 else DistributedSampler(train_dataset)
@@ -422,6 +422,13 @@ def main():
         default=None,
         type=str,
         required=True,
+        help="The output directory where the model predictions and checkpoints will be written.",
+    )
+    parser.add_argument(
+        "--log_dir",
+        default=None,
+        type=str,
+        required=False,
         help="The output directory where the model predictions and checkpoints will be written.",
     )
 

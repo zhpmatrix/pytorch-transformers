@@ -538,7 +538,6 @@ class PreTrainedTokenizer(object):
             for key, value in special_tokens_map.items():
                 if key not in init_kwargs:
                     init_kwargs[key] = value
-
         # Instantiate tokenizer.
         try:
             tokenizer = cls(*init_inputs, **init_kwargs)
