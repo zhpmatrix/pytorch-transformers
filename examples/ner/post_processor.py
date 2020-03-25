@@ -67,8 +67,9 @@ class AlignProcessor(PostProcessor):
         new_preds = ['O'] * len(preds)
         for (start, end) in bd_locs:
             entity_tag_list = preds[start:end]
-            new_entity_tag_list = self.change_tag(entity_tag_list, self.use_first_tag)
-            new_preds[start:end] = new_entity_tag_list
+            if any([ tag != 'O' for tag in entity_tag_list]):
+                new_entity_tag_list = self.change_tag(entity_tag_list, self.use_max_tag)
+                new_preds[start:end] = new_entity_tag_list
         return new_preds
     
     def change_tag(self,entity_tag_list, use_tag):
