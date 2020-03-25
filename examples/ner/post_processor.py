@@ -67,7 +67,7 @@ class AlignProcessor(PostProcessor):
         new_preds = ['O'] * len(preds)
         for (start, end) in bd_locs:
             entity_tag_list = preds[start:end]
-            new_entity_tag_list = self.change_tag(entity_tag_list, self.use_max_tag)
+            new_entity_tag_list = self.change_tag(entity_tag_list, self.use_first_tag)
             new_preds[start:end] = new_entity_tag_list
         return new_preds
     
@@ -75,12 +75,14 @@ class AlignProcessor(PostProcessor):
         """
             标签修正的模板函数
         """
-        def change_name(x, fix_tag):
-            x_list = x.split('-')
-            x_list[-1] = fix_tag
-            return '-'.join(x_list)
-        fix_tag = use_tag(entity_tag_list)
-        new_entity_tag_list = list(map(lambda x: change_name(x, fix_tag),entity_tag_list))
+        filter_tag_list = [tag for tag in entity_tag_list if tag.split('-')[-1] != 'O']
+        fix_tag = use_tag(filter_tag_list)
+        new_entity_tag_list = []
+        for i, tag in enumerate(entity_tag_list):
+            if i == 0:
+                new_entity_tag_list.append('B-'+fix_tag)
+            else:
+                new_entity_tag_list.append('I-'+fix_tag)
         return new_entity_tag_list
     
     def use_first_tag(self, entity_tag_list):
@@ -112,23 +114,25 @@ if __name__== '__main__':
     bd_preds4 = ['B','O','O','E','B','E','O','B','E'] 
     bd_preds5 = ['B','O','O','E','O','E','B','E','O','B','E','O','B'] 
     bd_preds6 = ['O','B','O','O','E','O','B','O','O','E'] 
+    bd_preds7 = ['O','B','O','E']
+    bd_preds8 = ['O','B','O','E','O','B','E']
+    bd_preds9 = ['O','B','E','O','O','O']
     preds0 = ['O','B-PER','I-PER','B-GPE','I-PER','O','B-ORG','I-ORG','I-GPE','I-GPE']
-    preds1 = ['O''B-PER','I-GPE','O','O','O']
-    
-    bd_preds = bd_preds6 
-    preds = preds0 
+    preds1 = ['O','B-PER','I-GPE','O','O','O']
+    preds2 = ['O','O','B-GPE','O']
+    preds3 = ['O','B-GPE','I-GPE','I-GPE','I-GPE','I-GPE','I-GPE']
+    bd_preds = bd_preds6
+    preds = preds0
     
     input_list = None
-    preds_list = [preds] * 2
-    bd_preds_list = [bd_preds] * 2
+    preds_list = None
+    bd_preds_list = None
     out_label_list = None
     aligner = AlignProcessor(input_list, preds_list, bd_preds_list, out_label_list)
-    new_preds_list = aligner.batch_processor()
-    print(preds_list)
-    print(new_preds_list)
+    #new_preds_list = aligner.batch_processor()
     
     bd_locs = aligner.get_boundary(bd_preds)
-    new_preds = aligner.normalize_tags(preds, bd_locs)
+    #new_preds = aligner.normalize_tags(preds, bd_locs)
     new_preds = aligner.each_processor(preds, bd_preds)
     print(new_preds)
 
