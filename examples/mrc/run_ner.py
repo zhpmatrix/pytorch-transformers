@@ -194,12 +194,11 @@ def train(args, train_dataset, model, tokenizer, labels, bd_labels, pad_token_la
 
             model.train()
             batch = tuple(t.to(args.device) for t in batch)
-            inputs = {"input_ids": batch[0], "attention_mask": batch[1], "labels": batch[3],"bd_labels":batch[4]}
+            inputs = {"input_ids": batch[0], "attention_mask": batch[1], "labels": batch[3]}
             if args.model_type != "distilbert":
                 inputs["token_type_ids"] = (
                     batch[2] if args.model_type in ["bert", "xlnet"] else None
                 )  # XLM and RoBERTa don"t use segment_ids
-
             outputs = model(**inputs)
             loss = outputs[0]  # model outputs are always tuple in pytorch-transformers (see doc)
 
@@ -295,7 +294,7 @@ def evaluate(args, model, tokenizer, labels, bd_labels, pad_token_label_id, mode
         batch = tuple(t.to(args.device) for t in batch)
 
         with torch.no_grad():
-            inputs = {"input_ids": batch[0], "attention_mask": batch[1], "labels": batch[3], "bd_labels": batch[4]}
+            inputs = {"input_ids": batch[0], "attention_mask": batch[1], "labels": batch[3]}
             if args.model_type != "distilbert":
                 inputs["token_type_ids"] = (
                     batch[2] if args.model_type in ["bert", "xlnet"] else None
@@ -316,11 +315,10 @@ def evaluate(args, model, tokenizer, labels, bd_labels, pad_token_label_id, mode
             preds = np.append(preds, logits.detach().cpu().numpy(), axis=0)
             out_label_ids = np.append(out_label_ids, inputs["labels"].detach().cpu().numpy(), axis=0)
             input_ids = np.append(input_ids, inputs["input_ids"].detach().cpu().numpy(), axis=0)
-
     eval_loss = eval_loss / nb_eval_steps
     preds = np.argmax(preds, axis=2)
 
-    label_map = {i: label for i, label in enumerate(labels)}
+    label_map = {i: label for i, label in enumerate(bd_labels)}
 
     out_label_list = [[] for _ in range(out_label_ids.shape[0])]
     preds_list = [[] for _ in range(out_label_ids.shape[0])]
@@ -332,7 +330,7 @@ def evaluate(args, model, tokenizer, labels, bd_labels, pad_token_label_id, mode
                 out_label_list[i].append(label_map[out_label_ids[i][j]])
                 preds_list[i].append(label_map[preds[i][j]])
                 input_list[i].append(tokenizer.convert_ids_to_tokens(int(input_ids[i][j])))
-    results = compute_metrics(out_label_list, preds_list, labels)
+    results = compute_metrics(out_label_list, preds_list, bd_labels)
     logger.info("***** Eval results %s *****", prefix)
     logger.info(results['report'])
     return results, preds_list, input_list
@@ -386,9 +384,8 @@ def load_and_cache_examples(args, tokenizer, labels, bd_labels, pad_token_label_
     all_input_mask = torch.tensor([f.input_mask for f in features], dtype=torch.long)
     all_segment_ids = torch.tensor([f.segment_ids for f in features], dtype=torch.long)
     all_label_ids = torch.tensor([f.label_ids for f in features], dtype=torch.long)
-    all_bd_label_ids = torch.tensor([f.bd_label_ids for f in features], dtype=torch.long)
 
-    dataset = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids, all_bd_label_ids)
+    dataset = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids)
     return dataset
 
 

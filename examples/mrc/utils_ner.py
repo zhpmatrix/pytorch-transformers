@@ -22,6 +22,7 @@ import copy
 from itertools import chain
 from utils.general_utils import GeneralUtils
 from sklearn.metrics import f1_score, classification_report
+from collections import Counter
 logger = logging.getLogger(__name__)
 
 
@@ -45,14 +46,49 @@ class InputExample(object):
 class InputFeatures(object):
     """A single set of features of data."""
 
-    def __init__(self, input_ids, input_mask, segment_ids, label_ids, bd_label_ids):
+    def __init__(self, input_ids, input_mask, segment_ids, label_ids):
         self.input_ids = input_ids
         self.input_mask = input_mask
         self.segment_ids = segment_ids
         self.label_ids = label_ids
-        self.bd_label_ids = bd_label_ids
 
 general_utils = GeneralUtils()
+
+def make_questions_by_tag(tag):
+    questions = {
+            'PER':'找出真实和虚构的人名。',
+            'NORP':'找出政治，宗教团体。',
+            'LOC':'找出国家，城市，山川等抽象或具体的地点。',
+            'ORG':'找出公司，商业机构，社会组织等组织机构。',
+            'GPE':'找出国家，城市和州的描述。',
+            'DEV':'找出设备和产品。',
+            'EVENT':'找出事件。',
+            'WORK':'找出艺术作品。',
+            'LAW':'找出关于法律的描述。',
+            'LAN':'找出关于语言的描述。',
+            'TIME':'句子中描述时间的词有哪些？',
+            'PERCENT':'找出关于百分比的描述。',
+            'CUR':'找出关于金钱的描述。',
+            'QUANTITY':'数量词有哪些？',
+            'ORDINAL':'找出序数词。',
+            'CARDINAL':'找出数词。'
+            }
+    return questions[tag]
+
+def make_examples(mode, guid_index, words, labels, bd_labels, examples):
+    tag_set = set()
+    for label in labels:
+        tag_set.add(label.split('-')[-1])
+    if 'O' in tag_set:
+        tag_set.remove('O')
+    for tag in tag_set:
+        mask_labels = list( map(lambda x: x.split('-')[-1] == tag, labels) )
+        tag_labels = [bd_labels[i] if mask == True else 'O' for i,mask in enumerate(mask_labels)]
+        question = make_questions_by_tag(tag)
+        new_words = list(question) + words
+        new_labels = ['O'] * len(question) + tag_labels
+        examples.append(InputExample(guid="{}-{}".format(mode, guid_index), words=new_words, labels=new_labels))
+    return examples
 
 def read_examples_from_file(data_dir, mode):
     file_path = os.path.join(data_dir, "{}.name".format(mode))
@@ -65,7 +101,7 @@ def read_examples_from_file(data_dir, mode):
         for line in f:
             if line == "\n":
                 if words:
-                    examples.append(InputExample(guid="{}-{}".format(mode, guid_index), words=words, labels=[labels,bd_labels]))
+                    examples = make_examples(mode, guid_index, words, labels, bd_labels, examples)
                     guid_index += 1
                     words = []
                     labels = []
@@ -86,7 +122,7 @@ def read_examples_from_file(data_dir, mode):
                     labels.append("O")
                     bd_labels.append("O")
         if words:
-            examples.append(InputExample(guid="{}-{}".format(mode, guid_index), words=words, labels=[labels,bd_labels]))
+            examples = make_examples(mode, guid_index, words, labels, bd_labels, examples)
     return examples
 
 
@@ -115,8 +151,8 @@ def convert_examples_to_features(
         `cls_token_segment_id` define the segment id associated to the CLS token (0 for BERT, 2 for XLNet)
     """
 
-    label_map = {label: i for i, label in enumerate(label_list)}
-    bd_label_map = {label: i for i, label in enumerate(bd_label_list)}
+    #label_map = {label: i for i, label in enumerate(label_list)}
+    label_map = {label: i for i, label in enumerate(bd_label_list)}
 
     features = []
     for (ex_index, example) in enumerate(examples):
@@ -126,22 +162,18 @@ def convert_examples_to_features(
         tokens = []
         label_ids = []
         bd_label_ids = []
-        labels = example.labels[0]
-        bd_labels = example.labels[1]
-        for word, label, bd_label in zip(example.words, labels, bd_labels):
+        for word, label in zip(example.words, example.labels):
             #word_tokens = tokenizer.tokenize(word)
             word_tokens = word
             tokens.extend(word_tokens)
             # Use the real label id for the first token of the word, and padding ids for the remaining tokens
             label_ids.extend([label_map[label]] + [pad_token_label_id] * (len(word_tokens) - 1))
-            bd_label_ids.extend([bd_label_map[bd_label]] + [pad_token_label_id] * (len(word_tokens) - 1))
 
         # Account for [CLS] and [SEP] with "- 2" and with "- 3" for RoBERTa.
         special_tokens_count = 3 if sep_token_extra else 2
         if len(tokens) > max_seq_length - special_tokens_count:
             tokens = tokens[: (max_seq_length - special_tokens_count)]
             label_ids = label_ids[: (max_seq_length - special_tokens_count)]
-            bd_label_ids = bd_label_ids[: (max_seq_length - special_tokens_count)]
 
         # The convention in BERT is:
         # (a) For sequence pairs:
@@ -163,23 +195,19 @@ def convert_examples_to_features(
         # the entire model is fine-tuned.
         tokens += [sep_token]
         label_ids += [pad_token_label_id]
-        bd_label_ids += [pad_token_label_id]
         if sep_token_extra:
             # roberta uses an extra separator b/w pairs of sentences
             tokens += [sep_token]
             label_ids += [pad_token_label_id]
-            bd_label_ids += [pad_token_label_id]
         segment_ids = [sequence_a_segment_id] * len(tokens)
 
         if cls_token_at_end:
             tokens += [cls_token]
             label_ids += [pad_token_label_id]
-            bd_label_ids += [pad_token_label_id]
             segment_ids += [cls_token_segment_id]
         else:
             tokens = [cls_token] + tokens
             label_ids = [pad_token_label_id] + label_ids
-            bd_label_ids = [pad_token_label_id] + bd_label_ids
             segment_ids = [cls_token_segment_id] + segment_ids
 
         input_ids = tokenizer.convert_tokens_to_ids(tokens)
@@ -195,19 +223,16 @@ def convert_examples_to_features(
             input_mask = ([0 if mask_padding_with_zero else 1] * padding_length) + input_mask
             segment_ids = ([pad_token_segment_id] * padding_length) + segment_ids
             label_ids = ([pad_token_label_id] * padding_length) + label_ids
-            bd_label_ids = ([pad_token_label_id] * padding_length) + bd_label_ids
         else:
             input_ids += [pad_token] * padding_length
             input_mask += [0 if mask_padding_with_zero else 1] * padding_length
             segment_ids += [pad_token_segment_id] * padding_length
             label_ids += [pad_token_label_id] * padding_length
-            bd_label_ids += [pad_token_label_id] * padding_length
 
         assert len(input_ids) == max_seq_length
         assert len(input_mask) == max_seq_length
         assert len(segment_ids) == max_seq_length
         assert len(label_ids) == max_seq_length
-        assert len(bd_label_ids) == max_seq_length
         if ex_index < 5:
             logger.info("*** Example ***")
             logger.info("guid: %s", example.guid)
@@ -216,9 +241,8 @@ def convert_examples_to_features(
             logger.info("input_mask: %s", " ".join([str(x) for x in input_mask]))
             logger.info("segment_ids: %s", " ".join([str(x) for x in segment_ids]))
             logger.info("label_ids: %s", " ".join([str(x) for x in label_ids]))
-            logger.info("bd_label_ids: %s", " ".join([str(x) for x in bd_label_ids]))
         features.append(
-            InputFeatures(input_ids=input_ids, input_mask=input_mask, segment_ids=segment_ids, label_ids=label_ids, bd_label_ids = bd_label_ids)
+            InputFeatures(input_ids=input_ids, input_mask=input_mask, segment_ids=segment_ids, label_ids=label_ids)
         )
     return features
 

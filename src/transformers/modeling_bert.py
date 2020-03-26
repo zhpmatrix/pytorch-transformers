@@ -1376,29 +1376,21 @@ class BertForTokenClassification(BertPreTrainedModel):
         sequence_output = outputs[0]
 
         sequence_output = self.dropout(sequence_output)
-        logits = self.classifier(sequence_output)
-        bd_logits = self.bd_classifier(sequence_output)
-        outputs = (logits,bd_logits,) + outputs[2:]  # add hidden states and attention if they are here
+        logits = self.bd_classifier(sequence_output)
+        outputs = (logits,) + outputs[2:]  # add hidden states and attention if they are here
         if labels is not None:
             loss_fct = CrossEntropyLoss()
             # Only keep active parts of the loss
             if attention_mask is not None:
-                active_loss = attention_mask.view(-1) == 1
-                active_logits = logits.view(-1, self.num_labels)
-                active_bd_logits = bd_logits.view(-1, self.num_bd_labels)
-                active_labels = torch.where(
+                active_loss = attention_mask.view(-1) == 1  
+                active_bd_logits = logits.view(-1, self.num_bd_labels)
+                active_bd_labels = torch.where(
                     active_loss, labels.view(-1), torch.tensor(loss_fct.ignore_index).type_as(labels)
                 )
-                active_bd_labels = torch.where(
-                    active_loss, bd_labels.view(-1), torch.tensor(loss_fct.ignore_index).type_as(bd_labels)
-                )
-                loss = loss_fct(active_logits, active_labels)
                 bd_loss = loss_fct(active_bd_logits, active_bd_labels)
             else:
-                loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
-                bd_loss = loss_fct(bd_logits.view(-1, self.num_bd_labels), bd_labels.view(-1))
-            total_loss = loss + 10 * bd_loss
-            outputs = (total_loss,) + outputs
+                bd_loss = loss_fct(logits.view(-1, self.num_bd_labels), labels.view(-1))
+            outputs = (bd_loss,) + outputs
 
         return outputs  # (loss), scores, (hidden_states), (attentions)
 
