@@ -1,5 +1,6 @@
 import re
 from collections import Counter
+from utils_ner import make_questions_by_tag
 
 class PostProcessor():
     def __init__(self, input_list, preds_list, bd_preds_list, out_label_list=None, out_bd_label_list=None):
@@ -106,7 +107,16 @@ class AlignProcessor(PostProcessor):
         (tag,_) = sorted(tag_dict.items(), key=lambda x: x[1], reverse=True)[0]
         return tag
 
+class MRCProcessor(PostProcessor):
+    def __init__(self, input_list, bd_preds_list, out_label_list):
+        super().__init__(input_list, bd_preds_list, out_label_list)
+    def each_processor(self, input_text, bd_preds):
+        tag = make_questions_by_tag('TIME')
+        import pdb;pdb.set_trace()
+        #TODO
+
 if __name__== '__main__':
+
 
     bd_preds0 = ['B','E','O']
     bd_preds1 = ['B','B','O']
@@ -129,6 +139,14 @@ if __name__== '__main__':
     preds_list = None
     bd_preds_list = None
     out_label_list = None
+    
+    mrc = MRCProcessor(input_list, bd_preds_list, out_label_list)
+    input_text = '找出艺术作品。敬请收看走遍中国特别节目，'
+    bd_preds = ['O', 'O', 'O', 'O', 'O', 'O', 'O', 'O', 'O', 'O', 'O', 'B', 'O', 'O', 'E', 'O', 'O', 'O', 'O', 'O']
+    mrc.each_processor(input_text, bd_preds)
+    exit()
+    
+
     aligner = AlignProcessor(input_list, preds_list, bd_preds_list, out_label_list)
     #new_preds_list = aligner.batch_processor()
     

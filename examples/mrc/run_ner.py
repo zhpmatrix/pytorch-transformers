@@ -330,6 +330,7 @@ def evaluate(args, model, tokenizer, labels, bd_labels, pad_token_label_id, mode
                 out_label_list[i].append(label_map[out_label_ids[i][j]])
                 preds_list[i].append(label_map[preds[i][j]])
                 input_list[i].append(tokenizer.convert_ids_to_tokens(int(input_ids[i][j])))
+    import pdb;pdb.set_trace()
     results = compute_metrics(out_label_list, preds_list, bd_labels)
     logger.info("***** Eval results %s *****", prefix)
     logger.info(results['report'])
