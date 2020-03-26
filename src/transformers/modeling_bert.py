@@ -1397,7 +1397,7 @@ class BertForTokenClassification(BertPreTrainedModel):
             else:
                 loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
                 bd_loss = loss_fct(bd_logits.view(-1, self.num_bd_labels), bd_labels.view(-1))
-            total_loss = loss + bd_loss
+            total_loss = loss + 10 * bd_loss
             outputs = (total_loss,) + outputs
 
         return outputs  # (loss), scores, (hidden_states), (attentions)
