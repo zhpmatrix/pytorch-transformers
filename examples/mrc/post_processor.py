@@ -1,6 +1,6 @@
 import re
 from collections import Counter
-from utils_ner import make_questions_by_tag
+from utils_ner import get_query_map
 
 class PostProcessor():
     def __init__(self, input_list, preds_list, bd_preds_list, out_label_list=None, out_bd_label_list=None):
@@ -108,12 +108,79 @@ class AlignProcessor(PostProcessor):
         return tag
 
 class MRCProcessor(PostProcessor):
+    
     def __init__(self, input_list, bd_preds_list, out_label_list):
-        super().__init__(input_list, bd_preds_list, out_label_list)
+        super().__init__(input_list, None, bd_preds_list, out_label_list = out_label_list)
+        _, self.query_to_tag = get_query_map()
+        self.query_context_split_chars = ['。','？']
+    
+    def batch_processor(self):
+        new_preds = []
+        for input_text, bd_preds in zip(self.input_list, self.bd_preds_list):
+            new_preds.append(self.each_processor(''.join(input_text), bd_preds))
+        return new_preds
+    
+    def batch_processor_merge(self):
+        examples = self.get_each_example()
+        new_preds = []
+        real_preds = []
+        for input_str, label_list in examples.items():
+            preds, reals = self.change_be_to_tag(input_str, label_list)
+            new_preds.append(preds)
+            real_preds.append(reals)
+        return new_preds, real_preds
+
+    def change_be_to_tag(self, input_str, label_list):
+        new_preds = ['O'] * len(input_str)
+        new_reals = ['O'] * len(input_str)
+        for (tag, bd_preds, real_preds) in label_list:
+            #处理边界标签
+            bd_locs = [item.span() for item in re.finditer('BO*E', ''.join(bd_preds))]
+            for (start, end) in bd_locs:
+                for i in range(start, end):
+                    if i == start:
+                        new_preds[i] = 'B-'+tag
+                    else:
+                        new_preds[i] = 'I-'+tag
+            #处理真实标签
+            for i,label in enumerate(real_preds):
+                if label != 'O':
+                    new_reals[i] = label
+        return new_preds, new_reals
+    
+    def get_each_example(self):
+        examples = {}
+        for input_text, bd_preds, real_out_label in zip(self.input_list, self.bd_preds_list, self.out_label_list):
+            input_str = ''.join(input_text)
+            query = re.split('|'.join(self.query_context_split_chars), input_str)[0]
+            text_start = len(query) + 1
+            tag, text = self.query_to_tag[query], input_str[text_start:]
+            if text not in examples:
+                examples[text] = []
+                examples[text].append((tag,bd_preds[text_start:], real_out_label[text_start:]))
+            else:
+                examples[text].append((tag,bd_preds[text_start:], real_out_label[text_start:]))
+        return examples
+
     def each_processor(self, input_text, bd_preds):
-        tag = make_questions_by_tag('TIME')
-        import pdb;pdb.set_trace()
-        #TODO
+        """
+            不处理的情况：
+                只有一个B
+                只有一个E
+            待测试：
+                B和E的个数相等，但是顺序不对 
+        """
+        query = re.split('|'.join(self.query_context_split_chars), input_text)[0]        
+        tag = self.query_to_tag[query]
+        new_preds = ['O'] * len(bd_preds)
+        bd_locs = [item.span() for item in re.finditer('BO*E', ''.join(bd_preds))]
+        for (start, end) in bd_locs:
+            for i in range(start, end):
+                if i == start:
+                    new_preds[i] = 'B-'+tag
+                else:
+                    new_preds[i] = 'I-'+tag
+        return new_preds
 
 if __name__== '__main__':
 
@@ -143,7 +210,10 @@ if __name__== '__main__':
     mrc = MRCProcessor(input_list, bd_preds_list, out_label_list)
     input_text = '找出艺术作品。敬请收看走遍中国特别节目，'
     bd_preds = ['O', 'O', 'O', 'O', 'O', 'O', 'O', 'O', 'O', 'O', 'O', 'B', 'O', 'O', 'E', 'O', 'O', 'O', 'O', 'O']
-    mrc.each_processor(input_text, bd_preds)
+    bd_preds = ['O', 'O', 'O', 'O', 'O', 'O', 'O', 'O', 'B', 'O', 'O', 'B', 'O', 'O', 'E', 'B', 'E', 'O', 'O', 'O']
+    bd_preds = ['O', 'O', 'O', 'O', 'O', 'O', 'O', 'O', 'B', 'O', 'O', 'B', 'O', 'O', 'E', 'B', 'E', 'E', 'O', 'O']
+    new_preds = mrc.each_processor(input_text, bd_preds)
+    print(new_preds)
     exit()
     
 

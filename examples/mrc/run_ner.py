@@ -28,6 +28,7 @@ from torch.nn import CrossEntropyLoss
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler, TensorDataset
 from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm, trange
+from post_processor import MRCProcessor
 
 from transformers import (
     WEIGHTS_NAME,
@@ -194,7 +195,7 @@ def train(args, train_dataset, model, tokenizer, labels, bd_labels, pad_token_la
 
             model.train()
             batch = tuple(t.to(args.device) for t in batch)
-            inputs = {"input_ids": batch[0], "attention_mask": batch[1], "labels": batch[3]}
+            inputs = {"input_ids": batch[0], "attention_mask": batch[1], "bd_labels": batch[4]}
             if args.model_type != "distilbert":
                 inputs["token_type_ids"] = (
                     batch[2] if args.model_type in ["bert", "xlnet"] else None
@@ -294,7 +295,7 @@ def evaluate(args, model, tokenizer, labels, bd_labels, pad_token_label_id, mode
         batch = tuple(t.to(args.device) for t in batch)
 
         with torch.no_grad():
-            inputs = {"input_ids": batch[0], "attention_mask": batch[1], "labels": batch[3]}
+            inputs = {"input_ids": batch[0], "attention_mask": batch[1], "labels": batch[3], "bd_labels":batch[4]}
             if args.model_type != "distilbert":
                 inputs["token_type_ids"] = (
                     batch[2] if args.model_type in ["bert", "xlnet"] else None
@@ -310,17 +311,21 @@ def evaluate(args, model, tokenizer, labels, bd_labels, pad_token_label_id, mode
         if preds is None:
             preds = logits.detach().cpu().numpy()
             out_label_ids = inputs["labels"].detach().cpu().numpy()
+            out_bd_label_ids = inputs["bd_labels"].detach().cpu().numpy()
             input_ids = inputs["input_ids"].detach().cpu().numpy()
         else:
             preds = np.append(preds, logits.detach().cpu().numpy(), axis=0)
             out_label_ids = np.append(out_label_ids, inputs["labels"].detach().cpu().numpy(), axis=0)
+            out_bd_label_ids = np.append(out_bd_label_ids, inputs["bd_labels"].detach().cpu().numpy(), axis=0)
             input_ids = np.append(input_ids, inputs["input_ids"].detach().cpu().numpy(), axis=0)
     eval_loss = eval_loss / nb_eval_steps
     preds = np.argmax(preds, axis=2)
 
-    label_map = {i: label for i, label in enumerate(bd_labels)}
+    label_map = {i: label for i, label in enumerate(labels)}
+    bd_label_map = {i: label for i, label in enumerate(bd_labels)}
 
     out_label_list = [[] for _ in range(out_label_ids.shape[0])]
+    out_bd_label_list = [[] for _ in range(out_label_ids.shape[0])]
     preds_list = [[] for _ in range(out_label_ids.shape[0])]
     input_list = [[] for _ in range(out_label_ids.shape[0])]
 
@@ -328,14 +333,26 @@ def evaluate(args, model, tokenizer, labels, bd_labels, pad_token_label_id, mode
         for j in range(out_label_ids.shape[1]):
             if out_label_ids[i, j] != pad_token_label_id:
                 out_label_list[i].append(label_map[out_label_ids[i][j]])
-                preds_list[i].append(label_map[preds[i][j]])
+                out_bd_label_list[i].append(bd_label_map[out_bd_label_ids[i][j]])
+                preds_list[i].append(bd_label_map[preds[i][j]])
                 input_list[i].append(tokenizer.convert_ids_to_tokens(int(input_ids[i][j])))
-    import pdb;pdb.set_trace()
-    results = compute_metrics(out_label_list, preds_list, bd_labels)
+    
+    mrc = MRCProcessor(input_list, preds_list, out_label_list)
+    #标签合并
+    examples = mrc.get_each_example()
+    new_preds, real_preds = mrc.batch_processor_merge()
+    merge_results = compute_metrics(real_preds, new_preds, labels)
+    #import pdb;pdb.set_trace() 
+    
+    #标签非合并
+    #new_preds_list = mrc.batch_processor()
+    #non_merge_results = compute_metrics(out_label_list, new_preds_list, labels)
+    
+    results = merge_results
     logger.info("***** Eval results %s *****", prefix)
     logger.info(results['report'])
-    return results, preds_list, input_list
-
+    print(results['report'])
+    return results, None, None
 
 def load_and_cache_examples(args, tokenizer, labels, bd_labels, pad_token_label_id, mode):
     if args.local_rank not in [-1, 0] and not evaluate:
@@ -384,9 +401,10 @@ def load_and_cache_examples(args, tokenizer, labels, bd_labels, pad_token_label_
     all_input_ids = torch.tensor([f.input_ids for f in features], dtype=torch.long)
     all_input_mask = torch.tensor([f.input_mask for f in features], dtype=torch.long)
     all_segment_ids = torch.tensor([f.segment_ids for f in features], dtype=torch.long)
+    all_bd_label_ids = torch.tensor([f.bd_label_ids for f in features], dtype=torch.long)
     all_label_ids = torch.tensor([f.label_ids for f in features], dtype=torch.long)
 
-    dataset = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids)
+    dataset = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids, all_bd_label_ids)
     return dataset
 
 
@@ -608,9 +626,9 @@ def main():
     config_class, model_class, tokenizer_class = MODEL_CLASSES[args.model_type]
     config = config_class.from_pretrained(
         args.config_name if args.config_name else args.model_name_or_path,
-        num_labels=num_labels,
-        id2label={str(i): label for i, label in enumerate(labels)},
-        label2id={label: i for i, label in enumerate(labels)},
+        num_labels=num_bd_labels,
+        id2label={str(i): label for i, label in enumerate(bd_labels)},
+        label2id={label: i for i, label in enumerate(bd_labels)},
         cache_dir=args.cache_dir if args.cache_dir else None,
     )
     tokenizer_args = {k: v for k, v in vars(args).items() if v is not None and k in TOKENIZER_ARGS}
