@@ -150,6 +150,7 @@ class MRCProcessor(PostProcessor):
     
     def get_each_example(self):
         examples = {}
+        labels = []
         for input_text, bd_preds, real_out_label in zip(self.input_list, self.bd_preds_list, self.out_label_list):
             input_str = ''.join(input_text)
             query = re.split('|'.join(self.query_context_split_chars), input_str)[0]
