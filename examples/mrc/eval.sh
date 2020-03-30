@@ -4,7 +4,7 @@ model_path=/nfs/users/zhanghaipeng/data/pt_bert_models/roberta-base
 #data_dir=/data/zhanghaipeng/ner_data/
 data_dir=/nfs/users/zhanghaipeng/general_ner/mrc_data
 expr=3
-cuda=2
+cuda=0
 ckpt=$1
 CUDA_VISIBLE_DEVICES=$cuda python run_ner.py \
 	--data_dir $data_dir/chinese/boundary_ontonotes/ \

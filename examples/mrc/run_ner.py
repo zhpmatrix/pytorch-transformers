@@ -339,7 +339,7 @@ def evaluate(args, model, tokenizer, labels, bd_labels, pad_token_label_id, mode
     
     mrc = MRCProcessor(input_list, preds_list, out_label_list)
     #标签合并
-    examples = mrc.get_each_example()
+    #examples = mrc.get_each_example()
     new_preds, real_preds = mrc.batch_processor_merge()
     merge_results = compute_metrics(real_preds, new_preds, labels)
     
