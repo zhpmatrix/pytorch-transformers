@@ -28,7 +28,9 @@ from .activations import gelu, gelu_new, swish
 from .configuration_bert import BertConfig
 from .file_utils import add_start_docstrings, add_start_docstrings_to_callable
 from .modeling_utils import PreTrainedModel, prune_linear_layer
-
+from .losses.focal_loss import FocalLoss
+from .losses.label_smoothing import LabelSmoothingCrossEntropy
+from .losses.multi_dice_loss import make_one_hot, DiceLoss
 
 logger = logging.getLogger(__name__)
 
@@ -1380,7 +1382,10 @@ class BertForTokenClassification(BertPreTrainedModel):
         bd_logits = self.bd_classifier(sequence_output)
         outputs = (logits,bd_logits,) + outputs[2:]  # add hidden states and attention if they are here
         if labels is not None:
-            loss_fct = CrossEntropyLoss()
+            #loss_fct = CrossEntropyLoss()
+            #loss_fct = FocalLoss()
+            #loss_fct = LabelSmoothingCrossEntropy()
+            loss_fct = DiceLoss() 
             # Only keep active parts of the loss
             if attention_mask is not None:
                 active_loss = attention_mask.view(-1) == 1
@@ -1391,14 +1396,16 @@ class BertForTokenClassification(BertPreTrainedModel):
                 )
                 active_bd_labels = torch.where(
                     active_loss, bd_labels.view(-1), torch.tensor(loss_fct.ignore_index).type_as(bd_labels)
-                )
+                ) 
+                #import pdb;pdb.set_trace()
                 loss = loss_fct(active_logits, active_labels)
                 bd_loss = loss_fct(active_bd_logits, active_bd_labels)
             else:
                 loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
                 bd_loss = loss_fct(bd_logits.view(-1, self.num_bd_labels), bd_labels.view(-1))
+            
             total_loss = loss + 10 * bd_loss
-            outputs = (total_loss,) + outputs
+            outputs = (loss,) + outputs
 
         return outputs  # (loss), scores, (hidden_states), (attentions)
 
