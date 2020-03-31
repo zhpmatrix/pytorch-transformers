@@ -21,7 +21,11 @@ import os
 import copy
 from itertools import chain
 from utils.general_utils import GeneralUtils
-from sklearn.metrics import f1_score, classification_report
+from sklearn.metrics import f1_score as sklearn_f1_score
+from sklearn.metrics import classification_report as sklearn_classification_report
+from seqeval.metrics import f1_score as seqeval_f1_score
+from seqeval.metrics import classification_report as seqeval_classification_report
+from seqeval.metrics import precision_score, recall_score
 from collections import Counter
 logger = logging.getLogger(__name__)
 
@@ -273,15 +277,28 @@ def get_labels(path):
     else:
         return ["O", "B-MISC", "I-MISC", "B-PER", "I-PER", "B-ORG", "I-ORG", "B-LOC", "I-LOC"]
 
-def compute_metrics(in_real_labels, in_pred_labels, labels):
-    real_labels = list(chain(*in_real_labels)) 
-    pred_labels = list(chain(*in_pred_labels)) 
-    metric_labels = copy.deepcopy(labels)
-    metric_labels.remove('O')
-    report = classification_report(real_labels, pred_labels, labels=metric_labels)
-    micro_f1 = f1_score(real_labels, pred_labels, labels=metric_labels, average='micro')
-    macro_f1 = f1_score(real_labels, pred_labels, labels=metric_labels, average='macro')
-    
-    return {'report':report,
-            'micro_f1':micro_f1,
-            'macro_f1':macro_f1}
+def compute_metrics(in_real_labels, in_pred_labels, labels, type_):
+    if type_ == 'token':
+        classification_report =  sklearn_classification_report
+        f1_score = sklearn_f1_score
+        real_labels = list(chain(*in_real_labels)) 
+        pred_labels = list(chain(*in_pred_labels)) 
+        metric_labels = copy.deepcopy(labels)
+        metric_labels.remove('O')
+        report = classification_report(real_labels, pred_labels, labels=metric_labels)
+        micro_f1 = f1_score(real_labels, pred_labels, labels=metric_labels, average='micro')
+        macro_f1 = f1_score(real_labels, pred_labels, labels=metric_labels, average='macro')
+        return {'report':report,
+                'micro_f1':micro_f1,
+                'macro_f1':macro_f1}
+    elif type_ == 'span':
+        classification_report =  seqeval_classification_report
+        f1_score = seqeval_f1_score
+        report = classification_report(in_real_labels, in_pred_labels)
+        f1_score_value = f1_score(in_real_labels, in_pred_labels)
+        precision = precision_score(in_real_labels, in_pred_labels)
+        recall = recall_score(in_real_labels, in_pred_labels)
+        return {'report':report,
+                'precision':precision,
+                'recall':recall,
+                'f1_score':f1_score_value}

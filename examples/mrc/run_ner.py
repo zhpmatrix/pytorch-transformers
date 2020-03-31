@@ -337,11 +337,12 @@ def evaluate(args, model, tokenizer, labels, bd_labels, pad_token_label_id, mode
                 preds_list[i].append(bd_label_map[preds[i][j]])
                 input_list[i].append(tokenizer.convert_ids_to_tokens(int(input_ids[i][j])))
     
+    metric_level = 'span'
     mrc = MRCProcessor(input_list, preds_list, out_label_list)
     #标签合并
     #examples = mrc.get_each_example()
     new_preds, real_preds = mrc.batch_processor_merge()
-    merge_results = compute_metrics(real_preds, new_preds, labels)
+    merge_results = compute_metrics(real_preds, new_preds, labels, type_ = metric_level)
     
     #标签非合并
     #new_preds_list = mrc.batch_processor()
@@ -349,8 +350,13 @@ def evaluate(args, model, tokenizer, labels, bd_labels, pad_token_label_id, mode
     
     results = merge_results
     logger.info("***** Eval results %s *****", prefix)
-    logger.info(results['report'])
-    print(results['report'])
+    if metric_level == 'span':
+        logger.info(results['report'])
+        print('f1_score: ' + str(results['f1_score']) )
+        print('precision: ' + str(results['precision']) )
+        print('recall: ' + str(results['recall']) )
+    else:
+        logger.info(results['report'])
     return results, None, None
 
 def load_and_cache_examples(args, tokenizer, labels, bd_labels, pad_token_label_id, mode):
