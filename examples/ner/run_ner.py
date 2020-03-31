@@ -331,10 +331,17 @@ def evaluate(args, model, tokenizer, labels, bd_labels, pad_token_label_id, mode
             if out_label_ids[i, j] != pad_token_label_id:
                 out_label_list[i].append(label_map[out_label_ids[i][j]])
                 preds_list[i].append(label_map[preds[i][j]])
-                input_list[i].append(tokenizer.convert_ids_to_tokens(int(input_ids[i][j])))
-    results = compute_metrics(out_label_list, preds_list, labels)
+                input_list[i].append(tokenizer.convert_ids_to_tokens(int(input_ids[i][j]))) 
+    metric_level = 'token'
+    results = compute_metrics(out_label_list, preds_list, labels, type_ = metric_level)
     logger.info("***** Eval results %s *****", prefix)
-    logger.info(results['report'])
+    if metric_level == 'span':
+        logger.info(results['report'])
+        print('f1_score: ' + str(results['f1_score']) )
+        print('precision: ' + str(results['precision']) )
+        print('recall: ' + str(results['recall']) )
+    else:
+        logger.info(results['report'])
     return results, preds_list, input_list
 
 
