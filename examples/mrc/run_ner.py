@@ -195,7 +195,7 @@ def train(args, train_dataset, model, tokenizer, labels, bd_labels, pad_token_la
 
             model.train()
             batch = tuple(t.to(args.device) for t in batch)
-            inputs = {"input_ids": batch[0], "attention_mask": batch[1], "bd_labels": batch[5]}
+            inputs = {"input_ids": batch[0], "attention_mask": batch[1], "token_type_ids": batch[3], "bd_labels": batch[5]}
             query_length = batch[2]
             outputs = model(**inputs)
             loss = outputs[0]  # model outputs are always tuple in pytorch-transformers (see doc)
@@ -293,7 +293,7 @@ def evaluate(args, model, tokenizer, labels, bd_labels, pad_token_label_id, mode
         batch = tuple(t.to(args.device) for t in batch)
 
         with torch.no_grad():
-            inputs = {"input_ids": batch[0], "attention_mask": batch[1], "labels": batch[4], "bd_labels":batch[5]}
+            inputs = {"input_ids": batch[0], "attention_mask": batch[1], "token_type_ids": batch[3], "labels": batch[4], "bd_labels":batch[5]}
             query_length = batch[2]
             outputs = model(**inputs)
             tmp_eval_loss, logits = outputs[:2]

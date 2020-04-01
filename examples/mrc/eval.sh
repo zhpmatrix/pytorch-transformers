@@ -3,7 +3,7 @@
 model_path=/nfs/users/zhanghaipeng/data/pt_bert_models/roberta-base
 #data_dir=/data/zhanghaipeng/ner_data/
 data_dir=/nfs/users/zhanghaipeng/general_ner/mrc_data
-expr=5
+expr=7
 cuda=0
 ckpt=$1
 CUDA_VISIBLE_DEVICES=$cuda python run_ner.py \
@@ -14,7 +14,7 @@ CUDA_VISIBLE_DEVICES=$cuda python run_ner.py \
 	--model_name_or_path $model_path \
 	--output_dir $data_dir/models/$expr/checkpoint-$ckpt \
 	--per_gpu_eval_batch_size 64 \
-	--max_seq_length 80 \
+	--max_seq_length 100 \
 	--seed 100 \
 	--do_eval \
 	--overwrite_output_dir \
