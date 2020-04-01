@@ -1319,6 +1319,7 @@ class BertForTokenClassification(BertPreTrainedModel):
         self,
         input_ids=None,
         attention_mask=None,
+        query_length=None,
         token_type_ids=None,
         position_ids=None,
         head_mask=None,

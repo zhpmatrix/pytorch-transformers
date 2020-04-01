@@ -109,8 +109,9 @@ class AlignProcessor(PostProcessor):
 
 class MRCProcessor(PostProcessor):
     
-    def __init__(self, input_list, bd_preds_list, out_label_list):
+    def __init__(self, input_list, query_list, bd_preds_list, out_label_list):
         super().__init__(input_list, None, bd_preds_list, out_label_list = out_label_list)
+        self.query_list = query_list
         _, self.query_to_tag = get_query_map()
         self.query_context_split_chars = ['。','？']
     
@@ -131,6 +132,9 @@ class MRCProcessor(PostProcessor):
         return new_preds, real_preds
 
     def change_be_to_tag(self, input_str, label_list):
+        """
+            特别提示：统计冲突位置和原因分析
+        """
         new_preds = ['O'] * len(input_str)
         new_reals = ['O'] * len(input_str)
         for (tag, bd_preds, real_preds) in label_list:
@@ -149,18 +153,19 @@ class MRCProcessor(PostProcessor):
         return new_preds, new_reals
     
     def get_each_example(self):
+        """
+            特别说明：假定测试样本不重复
+        """
         examples = {}
         labels = []
-        for input_text, bd_preds, real_out_label in zip(self.input_list, self.bd_preds_list, self.out_label_list):
+        for query, input_text, bd_preds, real_out_label in zip(self.query_list, self.input_list, self.bd_preds_list, self.out_label_list):
             input_str = ''.join(input_text)
-            query = re.split('|'.join(self.query_context_split_chars), input_str)[0]
-            text_start = len(query) + 1
-            tag, text = self.query_to_tag[query], input_str[text_start:]
-            if text not in examples:
-                examples[text] = []
-                examples[text].append((tag,bd_preds[text_start:], real_out_label[text_start:]))
+            tag = self.query_to_tag[query]
+            if input_str not in examples:
+                examples[input_str] = []
+                examples[input_str].append((tag,bd_preds, real_out_label))
             else:
-                examples[text].append((tag,bd_preds[text_start:], real_out_label[text_start:]))
+                examples[input_str].append((tag,bd_preds, real_out_label))
         return examples
 
     def each_processor(self, input_text, bd_preds):

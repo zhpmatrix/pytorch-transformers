@@ -3,8 +3,8 @@ model_path=/nfs/users/zhanghaipeng/data/pt_bert_models/roberta-base
 #model_path=/nfs/users/zhanghaipeng/data/pt_bert_models/bert-base-chinese
 data_dir=/nfs/users/zhanghaipeng/general_ner/mrc_data/
 #data_dir=/data/zhanghaipeng/ner_data/
-expr=3
-cuda=2
+expr=5
+cuda=0
 CUDA_VISIBLE_DEVICES=$cuda python run_ner.py \
 	--data_dir $data_dir/chinese/boundary_ontonotes \
 	--model_type bert \
@@ -18,7 +18,7 @@ CUDA_VISIBLE_DEVICES=$cuda python run_ner.py \
 	--per_gpu_eval_batch_size 64 \
 	--max_seq_length  80 \
 	--seed 100 \
-	--learning_rate 5e-5 \
+	--learning_rate 3e-5 \
 	--do_train \
 	--evaluate_during_training \
 	--overwrite_output_dir \

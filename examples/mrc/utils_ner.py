@@ -50,9 +50,10 @@ class InputExample(object):
 class InputFeatures(object):
     """A single set of features of data."""
 
-    def __init__(self, input_ids, input_mask, segment_ids, label_ids, bd_label_ids):
+    def __init__(self, input_ids, input_mask, query_length, segment_ids, label_ids, bd_label_ids):
         self.input_ids = input_ids
         self.input_mask = input_mask
+        self.query_length = query_length
         self.segment_ids = segment_ids
         self.label_ids = label_ids
         self.bd_label_ids = bd_label_ids
@@ -78,7 +79,7 @@ def get_query_map():
             'ORDINAL':'找出序数词。',
             'CARDINAL':'找出数词。'
             }
-    inverse_query_map = {q[:-1]:tag for tag, q in query_map.items()}
+    inverse_query_map = {q:tag for tag, q in query_map.items()}
     return query_map, inverse_query_map
 
 def make_examples(mode, guid_index, words, labels, bd_labels, examples, query_map):
@@ -91,11 +92,8 @@ def make_examples(mode, guid_index, words, labels, bd_labels, examples, query_ma
         mask_labels = list( map(lambda x: x.split('-')[-1] == tag, labels) )
         each_bd_labels = [bd_labels[i] if mask == True else 'O' for i,mask in enumerate(mask_labels)]
         each_labels = [labels[i] if mask == True else 'O' for i,mask in enumerate(mask_labels)]
-        question = query_map[tag]
-        new_words = list(question) + words
-        new_bd_labels = ['O'] * len(question) + each_bd_labels
-        new_labels = ['O'] * len(question) + each_labels
-        examples.append(InputExample(guid="{}-{}".format(mode, guid_index), words=new_words, labels=[new_labels, new_bd_labels]))
+        question = list(query_map[tag])
+        examples.append(InputExample(guid="{}-{}".format(mode, guid_index), words=[question, words], labels=[each_labels, each_bd_labels]))
     return examples
 
 def read_examples_from_file(data_dir, mode):
@@ -170,22 +168,26 @@ def convert_examples_to_features(
         tokens = []
         label_ids = []
         bd_label_ids = []
+        query = example.words[0]
+        context = example.words[1]
         labels = example.labels[0]
         bd_labels = example.labels[1]
-        for word, label, bd_label in zip(example.words, labels, bd_labels):
+        for context_token, label, bd_label in zip(context, labels, bd_labels):
             #word_tokens = tokenizer.tokenize(word)
-            word_tokens = word
+            word_tokens = context_token
             tokens.extend(word_tokens)
             # Use the real label id for the first token of the word, and padding ids for the remaining tokens
             label_ids.extend([label_map[label]] + [pad_token_label_id] * (len(word_tokens) - 1))
             bd_label_ids.extend([bd_label_map[bd_label]] + [pad_token_label_id] * (len(word_tokens) - 1))
-
+         
         # Account for [CLS] and [SEP] with "- 2" and with "- 3" for RoBERTa.
-        special_tokens_count = 3 if sep_token_extra else 2
-        if len(tokens) > max_seq_length - special_tokens_count:
-            tokens = tokens[: (max_seq_length - special_tokens_count)]
-            label_ids = label_ids[: (max_seq_length - special_tokens_count)]
-            bd_label_ids = bd_label_ids[: (max_seq_length - special_tokens_count)]
+        special_tokens_count = 3
+        query_length = len(query)
+        context_max_length = max_seq_length - special_tokens_count - query_length
+        if len(tokens) > context_max_length:
+            tokens = tokens[: context_max_length]
+            label_ids = label_ids[: context_max_length]
+            bd_label_ids = bd_label_ids[: context_max_length]
 
         # The convention in BERT is:
         # (a) For sequence pairs:
@@ -205,27 +207,16 @@ def convert_examples_to_features(
         # For classification tasks, the first vector (corresponding to [CLS]) is
         # used as as the "sentence vector". Note that this only makes sense because
         # the entire model is fine-tuned.
-        tokens += [sep_token]
-        label_ids += [pad_token_label_id]
-        bd_label_ids += [pad_token_label_id]
-        if sep_token_extra:
-            # roberta uses an extra separator b/w pairs of sentences
-            tokens += [sep_token]
-            label_ids += [pad_token_label_id]
-            bd_label_ids += [pad_token_label_id]
-        segment_ids = [sequence_a_segment_id] * len(tokens)
+        sequence_a_segment_id, sequence_b_segment_id = 0,1
+        segment_ids = [sequence_a_segment_id] * (len(query) + 1) + [sequence_b_segment_id] * (len(tokens)+1)
+        tokens = query + [sep_token] + tokens + [sep_token]
+        label_ids =  [pad_token_label_id] * (len(query) + 1) + label_ids + [pad_token_label_id]
+        bd_label_ids = [pad_token_label_id] * (len(query) + 1) + bd_label_ids + [pad_token_label_id]
 
-        if cls_token_at_end:
-            tokens += [cls_token]
-            label_ids += [pad_token_label_id]
-            bd_label_ids += [pad_token_label_id]
-            segment_ids += [cls_token_segment_id]
-        else:
-            tokens = [cls_token] + tokens
-            label_ids = [pad_token_label_id] + label_ids
-            bd_label_ids = [pad_token_label_id] + bd_label_ids
-            segment_ids = [cls_token_segment_id] + segment_ids
-
+        tokens = [cls_token] + tokens
+        label_ids = [pad_token_label_id] + label_ids
+        bd_label_ids = [pad_token_label_id] + bd_label_ids
+        segment_ids = [cls_token_segment_id] + segment_ids
         input_ids = tokenizer.convert_tokens_to_ids(tokens)
 
         # The mask has 1 for real tokens and 0 for padding tokens. Only real
@@ -234,18 +225,12 @@ def convert_examples_to_features(
 
         # Zero-pad up to the sequence length.
         padding_length = max_seq_length - len(input_ids)
-        if pad_on_left:
-            input_ids = ([pad_token] * padding_length) + input_ids
-            input_mask = ([0 if mask_padding_with_zero else 1] * padding_length) + input_mask
-            segment_ids = ([pad_token_segment_id] * padding_length) + segment_ids
-            label_ids = ([pad_token_label_id] * padding_length) + label_ids
-            bd_label_ids = ([pad_token_label_id] * padding_length) + bd_label_ids
-        else:
-            input_ids += [pad_token] * padding_length
-            input_mask += [0 if mask_padding_with_zero else 1] * padding_length
-            segment_ids += [pad_token_segment_id] * padding_length
-            label_ids += [pad_token_label_id] * padding_length
-            bd_label_ids += [pad_token_label_id] * padding_length
+        
+        input_ids += [pad_token] * padding_length
+        input_mask += [0 if mask_padding_with_zero else 1] * padding_length
+        segment_ids += [pad_token_segment_id] * padding_length
+        label_ids += [pad_token_label_id] * padding_length
+        bd_label_ids += [pad_token_label_id] * padding_length
 
         assert len(input_ids) == max_seq_length
         assert len(input_mask) == max_seq_length
@@ -260,9 +245,9 @@ def convert_examples_to_features(
             logger.info("input_mask: %s", " ".join([str(x) for x in input_mask]))
             logger.info("segment_ids: %s", " ".join([str(x) for x in segment_ids]))
             logger.info("label_ids: %s", " ".join([str(x) for x in label_ids]))
-            logger.info("label_ids: %s", " ".join([str(x) for x in bd_label_ids]))
+            logger.info("bd_label_ids: %s", " ".join([str(x) for x in bd_label_ids]))
         features.append(
-            InputFeatures(input_ids=input_ids, input_mask=input_mask, segment_ids=segment_ids, label_ids=label_ids, bd_label_ids = bd_label_ids)
+            InputFeatures(input_ids=input_ids, input_mask=input_mask, query_length = query_length, segment_ids=segment_ids, label_ids=label_ids, bd_label_ids = bd_label_ids)
         )
     return features
 
