@@ -61,7 +61,7 @@ class InputFeatures(object):
 general_utils = GeneralUtils()
 
 def get_query_map():
-    query_map = {
+    query_map_v1 = {
             'PER':'找出真实和虚构的人名。',
             'NORP':'找出政治，宗教团体。',
             'LOC':'找出国家，城市，山川等抽象或具体的地点。',
@@ -79,6 +79,25 @@ def get_query_map():
             'ORDINAL':'找出序数词。',
             'CARDINAL':'找出数词。'
             }
+    query_map_v2 = {
+            'PER':'找出真实和虚构的人物。',
+            'NORP':'找出政治，宗教团体。',
+            'LOC':'找出国家，城市，山川等抽象或具体的地点。',
+            'ORG':'找出公司，商业机构，社会组织等组织机构。',
+            'GPE':'找出国家，城市和州的描述。',
+            'DEV':'找出设备和产品。',
+            'EVENT':'找出飓风，战争，战斗，体育赛事等事件。',
+            'WORK':'书和歌曲的名字。',
+            'LAW':'找出法律文本。',
+            'LAN':'找出关于语言的描述。',
+            'TIME':'句子中描述时间的词有哪些？带有年月日天等单位。',
+            'PERCENT':'包含%的分数。',
+            'CUR':'找出关于金钱的描述。',
+            'QUANTITY':'数量词，带有公顷，度，级等单位。',
+            'ORDINAL':'第一或第二。',
+            'CARDINAL':'找出一二三四个十百千万等数字。'
+            }
+    query_map = query_map_v1
     inverse_query_map = {q:tag for tag, q in query_map.items()}
     return query_map, inverse_query_map
 
@@ -94,6 +113,12 @@ def make_examples(mode, guid_index, words, labels, bd_labels, examples, query_ma
         each_labels = [labels[i] if mask == True else 'O' for i,mask in enumerate(mask_labels)]
         question = list(query_map[tag])
         examples.append(InputExample(guid="{}-{}".format(mode, guid_index), words=[question, words], labels=[each_labels, each_bd_labels]))
+   # for tag in query_map:
+   #     if tag not in tag_set:
+   #         question = list(query_map[tag])
+   #         each_labels = ['O'] * len(labels)
+   #         each_bd_labels = ['O'] * len(bd_labels)
+   #         examples.append(InputExample(guid="{}-{}".format(mode, guid_index), words=[question, words], labels=[each_labels, each_bd_labels]))
     return examples
 
 def read_examples_from_file(data_dir, mode):
