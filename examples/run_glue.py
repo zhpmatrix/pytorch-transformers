@@ -22,7 +22,7 @@ import json
 import logging
 import os
 import random
-
+from pprint import pprint
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler, TensorDataset
@@ -261,8 +261,9 @@ def train(args, train_dataset, model, tokenizer):
                     logging_loss = tr_loss
 
                     for key, value in logs.items():
-                        tb_writer.add_scalar(key, value, global_step)
-                    print(json.dumps({**logs, **{"step": global_step}}))
+                        if key != 'eval_report':
+                            tb_writer.add_scalar(key, value, global_step)
+                    pprint(logs)
 
                 if args.local_rank in [-1, 0] and args.save_steps > 0 and global_step % args.save_steps == 0:
                     # Save model checkpoint
@@ -351,12 +352,10 @@ def evaluate(args, model, tokenizer, prefix=""):
             preds = np.argmax(preds, axis=1)
         elif args.output_mode == "regression":
             preds = np.squeeze(preds)
-        result = compute_metrics(eval_task, preds, out_label_ids)
+        result = compute_metrics(eval_task, preds, out_label_ids, model.num_labels)
         results.update(result)
-
         output_eval_file = os.path.join(eval_output_dir, prefix, "eval_results.txt")
-        with open(output_eval_file, "w") as writer:
-            logger.info("***** Eval results {} *****".format(prefix))
+        with open(output_eval_file, "a") as writer:
             for key in sorted(result.keys()):
                 logger.info("  %s = %s", key, str(result[key]))
                 writer.write("%s = %s\n" % (key, str(result[key])))
@@ -385,7 +384,7 @@ def load_and_cache_examples(args, task, tokenizer, evaluate=False):
         features = torch.load(cached_features_file)
     else:
         logger.info("Creating features from dataset file at %s", args.data_dir)
-        label_list = processor.get_labels()
+        label_list = processor.get_labels(args.label_path)
         if task in ["mnli", "mnli-mm"] and args.model_type in ["roberta", "xlmroberta"]:
             # HACK(label indices are swapped in RoBERTa pretrained model)
             label_list[1], label_list[2] = label_list[2], label_list[1]
@@ -453,6 +452,13 @@ def main():
         type=str,
         required=True,
         help="The name of the task to train selected in the list: " + ", ".join(processors.keys()),
+    )
+    parser.add_argument(
+        "--label_path",
+        default=None,
+        type=str,
+        required=True,
+        help="The label path",
     )
     parser.add_argument(
         "--output_dir",
@@ -610,7 +616,7 @@ def main():
         raise ValueError("Task not found: %s" % (args.task_name))
     processor = processors[args.task_name]()
     args.output_mode = output_modes[args.task_name]
-    label_list = processor.get_labels()
+    label_list = processor.get_labels(args.label_path)
     num_labels = len(label_list)
 
     # Load pretrained model and tokenizer
