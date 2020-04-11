@@ -11,7 +11,7 @@ CUDA_VISIBLE_DEVICES=$cuda python run_glue.py \
 	--model_name_or_path $model_path \
 	--output_dir $data_dir/models/$expr \
 	--label_path $data_dir/label.csv \
-	--num_train_epochs 30 \
+	--num_train_epochs 400 \
 	--per_gpu_train_batch_size 64 \
 	--per_gpu_eval_batch_size 64 \
 	--max_seq_length  60 \
