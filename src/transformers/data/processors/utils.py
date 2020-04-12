@@ -18,7 +18,7 @@ import copy
 import csv
 import json
 import logging
-
+import pandas as pd
 from ...file_utils import is_tf_available, is_torch_available
 
 
@@ -123,9 +123,10 @@ class DataProcessor(object):
     @classmethod
     def _read_tsv(cls, input_file, quotechar=None):
         """Reads a tab separated value file."""
-        with open(input_file, "r", encoding="utf-8-sig") as f:
-            return list(csv.reader(f, delimiter="\t", quotechar=quotechar))
-
+        #with open(input_file, "r", encoding="utf-8-sig") as f:
+        #    return list(csv.reader(f, delimiter="\t", quotechar=quotechar))
+        data = pd.read_csv(input_file, header=None)
+        return data.iloc[:,[1,3]].values.tolist() 
 
 class SingleSentenceClassificationProcessor(DataProcessor):
     """ Generic processor for a single sentence classification data set."""

@@ -17,7 +17,7 @@
 
 import logging
 import os
-
+import pandas as pd
 from ...file_utils import is_tf_available
 from .utils import DataProcessor, InputExample, InputFeatures
 
@@ -515,8 +515,45 @@ class WnliProcessor(DataProcessor):
             examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
         return examples
 
+class KuaiShouProcessor(DataProcessor):
+
+    def get_example_from_tensor_dict(self, tensor_dict):
+        """See base class."""
+        return InputExample(
+            tensor_dict["idx"].numpy(),
+            tensor_dict["sentence"].numpy().decode("utf-8"),
+            None,
+            str(tensor_dict["label"].numpy()),
+        )
+
+    def get_train_examples(self, data_dir):
+        """See base class."""
+        return self._create_examples(self._read_tsv(os.path.join(data_dir, "train.csv")), "train")
+
+    def get_dev_examples(self, data_dir):
+        """See base class."""
+        return self._create_examples(self._read_tsv(os.path.join(data_dir, "test.csv")), "dev")
+
+    def get_labels(self, label_path):
+        labels = []
+        with open(label_path, 'r') as reader:
+            for line in reader:
+                labels.append(line.strip())
+        return labels
+    
+    def _create_examples(self, lines, set_type):
+        """Creates examples for the training and dev sets."""
+        examples = []
+        for (i, line) in enumerate(lines):
+            guid = "%s-%s" % (set_type, i)
+            text_a = line[0]
+            label = line[1]
+            examples.append(InputExample(guid=guid, text_a=text_a, text_b=None, label=label))
+        return examples
+
 
 glue_tasks_num_labels = {
+    "kuaishou": 85,
     "cola": 2,
     "mnli": 3,
     "mrpc": 2,
@@ -529,6 +566,7 @@ glue_tasks_num_labels = {
 }
 
 glue_processors = {
+    "kuaishou": KuaiShouProcessor,
     "cola": ColaProcessor,
     "mnli": MnliProcessor,
     "mnli-mm": MnliMismatchedProcessor,
@@ -542,6 +580,7 @@ glue_processors = {
 }
 
 glue_output_modes = {
+    "kuaishou": "classification",
     "cola": "classification",
     "mnli": "classification",
     "mnli-mm": "classification",

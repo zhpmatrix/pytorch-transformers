@@ -16,7 +16,7 @@
 
 try:
     from scipy.stats import pearsonr, spearmanr
-    from sklearn.metrics import matthews_corrcoef, f1_score
+    from sklearn.metrics import matthews_corrcoef, f1_score, classification_report
 
     _has_sklearn = True
 except (AttributeError, ImportError):
@@ -32,13 +32,19 @@ if _has_sklearn:
     def simple_accuracy(preds, labels):
         return (preds == labels).mean()
 
-    def acc_and_f1(preds, labels):
-        acc = simple_accuracy(preds, labels)
-        f1 = f1_score(y_true=labels, y_pred=preds)
+    def acc_and_f1(pred_labels, real_labels, metric_labels):
+        metric_labels = [i for i in range(metric_labels)]
+        remove_labels = [0,1]
+        remove_labels = []
+        for label in remove_labels:
+            metric_labels.remove(label)
+        micro_f1 = f1_score(y_true=real_labels, y_pred=pred_labels, labels=metric_labels, average='micro')
+        macro_f1 = f1_score(y_true=real_labels, y_pred=pred_labels, labels=metric_labels, average='macro')
+        report = classification_report(real_labels, pred_labels, labels=metric_labels)
         return {
-            "acc": acc,
-            "f1": f1,
-            "acc_and_f1": (acc + f1) / 2,
+            "report": report,
+            "micro_f1": micro_f1,
+            "macro_f1": macro_f1,
         }
 
     def pearson_and_spearman(preds, labels):
@@ -50,10 +56,12 @@ if _has_sklearn:
             "corr": (pearson_corr + spearman_corr) / 2,
         }
 
-    def glue_compute_metrics(task_name, preds, labels):
+    def glue_compute_metrics(task_name, preds, labels, metric_labels):
         assert len(preds) == len(labels)
         if task_name == "cola":
             return {"mcc": matthews_corrcoef(labels, preds)}
+        elif task_name == "kuaishou":
+            return acc_and_f1(preds, labels, metric_labels)
         elif task_name == "sst-2":
             return {"acc": simple_accuracy(preds, labels)}
         elif task_name == "mrpc":
