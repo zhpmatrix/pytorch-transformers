@@ -2,7 +2,7 @@ model_path=/nfs/users/zhanghaipeng/data/pt_bert_models/roberta-base
 data_dir=/nfs/users/zhanghaipeng/data/kuaishou/bucket
 label_name=label.csv
 task_name=kuaishou
-expr=0
+expr=4
 cuda=0
 CUDA_VISIBLE_DEVICES=$cuda python run_glue.py \
 	--data_dir $data_dir \

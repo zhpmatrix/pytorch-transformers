@@ -35,7 +35,7 @@ if _has_sklearn:
     def acc_and_f1(pred_labels, real_labels, metric_labels):
         metric_labels = [i for i in range(metric_labels)]
         remove_labels = [0,1]
-        remove_labels = []
+        #remove_labels = []
         for label in remove_labels:
             metric_labels.remove(label)
         micro_f1 = f1_score(y_true=real_labels, y_pred=pred_labels, labels=metric_labels, average='micro')

@@ -1,5 +1,6 @@
 import os
 import pandas as pd
+from tqdm import tqdm
 
 class DataSplitter():
     
@@ -88,13 +89,55 @@ class PredictHelper(DataSplitter):
     
     def get_raw_data(self):
         raw_data = pd.read_csv(os.path.join(self.root_dir,save_path[0]))
-        start = 3000
-        end = 4000
+        start = 4000
+        end = 8000
         return raw_data[start: end]
         #return raw_data[start: end].sample(frac=1, random_state=666).reset_index(drop=True)
     
     def get_predict_data(self, predict_save_path): 
         self.data['mark_result'] = '0_无匹配'
+        self.data.to_csv(os.path.join(self.root_dir, self.type_dir, predict_save_path), index=False, header=False)
+
+class SemiSupervisedHelper(DataSplitter):
+    def __init__(self, root_dir, save_path):
+        super().__init__(root_dir, save_path)
+        self.type_dir = 'bucket'
+        self.data = self.get_raw_data()
+        self.model = self.load_model()
+        self.labels = self.load_label()
+
+    def load_label(self):
+        label_path = '/nfs/users/zhanghaipeng/data/kuaishou/bucket/label.csv'
+        labels = []
+        with open(label_path, 'r') as reader:
+            for line in reader:
+                labels.append(line.strip())
+        return labels
+
+    def load_model(self):
+        from simplex_sdk import SimplexClient
+        return SimplexClient('ks-bot',namespace='dev')
+
+    def get_raw_data(self):
+        raw_data = pd.read_csv(os.path.join(self.root_dir,save_path[0]))
+        start = 4000
+        end = 8000
+        return raw_data[start: end]
+        #return raw_data[start: end].sample(frac=1, random_state=666).reset_index(drop=True)
+    
+    def get_predict_data(self, predict_save_path): 
+        self.data['mark_result'] = '无标签'
+        for i in tqdm(range(self.data.shape[0])):
+            query = self.data.iloc[i]['query']
+            pred_results = self.model.predict([query])
+            pred_label = pred_results[0]['results_list'][0]['title']
+            pred_prob = pred_results[0]['results_list'][0]['prob']
+            thresh = 0.8
+            if float(pred_prob) > thresh:
+                for label in self.labels:
+                    if pred_label == label.split('_')[1]:
+                        self.data.iloc[i] = ['',query,'',label, '']
+        self.data = self.data[self.data['mark_result'] != '无标签']
         self.data.to_csv(os.path.join(self.root_dir, self.type_dir, predict_save_path), index=False, header=False)
 
 if __name__ == '__main__':
@@ -106,6 +149,11 @@ if __name__ == '__main__':
     save_label_path = 'label.csv'
     ratio = [0.8, 0.1, 0.1]
 
+    semi_supervised_save_path = 'semi_supervised_0.8.csv'
+    semi = SemiSupervisedHelper(root_dir, [save_path[0]])
+    semi.get_predict_data(semi_supervised_save_path)
+    exit()
+    
     predict_save_path = 'predict.csv'
     
     pred = PredictHelper(root_dir, [save_path[0]])

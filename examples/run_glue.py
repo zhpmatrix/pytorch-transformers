@@ -359,16 +359,16 @@ def evaluate(args, model, tokenizer, processor, prefix=""):
             preds = np.squeeze(preds)
         
         #测试TopK命名率
-        Kmax = 5
+        Kmax = 1
     
         #预测结果输出
-        topk_test(input_examples, raw_preds, out_label_ids, Kmax, tokenizer, args, processor)
-        exit()
+        #topk_test(input_examples, raw_preds, out_label_ids, Kmax, tokenizer, args, processor)
+        #exit()
         
         #命中率评估
-        for topk in range(Kmax):
-            topk_test(input_examples, raw_preds, out_label_ids, topk + 1, tokenizer, args, processor)
-        exit()
+        #for topk in range(Kmax):
+        #    topk_test(input_examples, raw_preds, out_label_ids, topk + 1, tokenizer, args, processor)
+        #exit()
 
         result = compute_metrics(eval_task, preds, out_label_ids, model.num_labels)
         results.update(result)
@@ -434,7 +434,6 @@ def load_and_cache_examples(args, task, tokenizer, evaluate=False):
         all_labels = torch.tensor([f.label for f in features], dtype=torch.long)
     elif output_mode == "regression":
         all_labels = torch.tensor([f.label for f in features], dtype=torch.float)
-
     dataset = TensorDataset(all_input_ids, all_attention_mask, all_token_type_ids, all_labels)
     return dataset
 
@@ -663,7 +662,8 @@ def main():
 
     if args.local_rank == 0:
         torch.distributed.barrier()  # Make sure only the first process in distributed training will download model & vocab
-
+    #半精度推断
+    #model.half()
     model.to(args.device)
 
     logger.info("Training/evaluation parameters %s", args)
@@ -713,6 +713,8 @@ def main():
             prefix = checkpoint.split("/")[-1] if checkpoint.find("checkpoint") != -1 else ""
 
             model = model_class.from_pretrained(checkpoint)
+            #半精度推断
+            #model.half()
             model.to(args.device)
             result = evaluate(args, model, tokenizer, processor, prefix=prefix)
             result = dict((k + "_{}".format(global_step), v) for k, v in result.items())

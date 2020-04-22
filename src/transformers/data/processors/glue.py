@@ -17,10 +17,11 @@
 
 import logging
 import os
+import jieba
 import pandas as pd
 from ...file_utils import is_tf_available
 from .utils import DataProcessor, InputExample, InputFeatures
-
+from .eigen_eda import EDA
 
 if is_tf_available():
     import tensorflow as tf
@@ -528,7 +529,7 @@ class KuaiShouProcessor(DataProcessor):
 
     def get_train_examples(self, data_dir):
         """See base class."""
-        return self._create_examples(self._read_tsv(os.path.join(data_dir, "train.csv")), "train")
+        return self._create_examples(self._read_tsv(os.path.join(data_dir, "train_semi_0.8.csv")), "train")
 
     def get_dev_examples(self, data_dir):
         """See base class."""
@@ -540,15 +541,27 @@ class KuaiShouProcessor(DataProcessor):
             for line in reader:
                 labels.append(line.strip())
         return labels
-    
+     
     def _create_examples(self, lines, set_type):
         """Creates examples for the training and dev sets."""
+        eda = EDA()
+        aug_list = [eda.synonym_replacement, eda.random_deletion, eda.random_insertion, eda.random_swap]
+        aug_flag = False
         examples = []
         for (i, line) in enumerate(lines):
             guid = "%s-%s" % (set_type, i)
             text_a = line[0]
             label = line[1]
-            examples.append(InputExample(guid=guid, text_a=text_a, text_b=None, label=label))
+            if aug_flag and set_type == 'train':
+                text_a_words = list(jieba.cut(text_a))
+                for aug_func in aug_list:
+                    aug_text_a_words = aug_func(text_a_words)
+                    aug_text_a = ''.join(aug_text_a_words)
+                    if aug_text_a != text_a:
+                        examples.append(InputExample(guid=guid, text_a=aug_text_a, text_b=None, label=label))
+            else:
+                examples.append(InputExample(guid=guid, text_a=text_a, text_b=None, label=label))
+        
         return examples
 
 
