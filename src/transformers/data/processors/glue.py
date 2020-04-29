@@ -18,6 +18,7 @@
 import logging
 import os
 import jieba
+import json
 import pandas as pd
 from ...file_utils import is_tf_available
 from .utils import DataProcessor, InputExample, InputFeatures
@@ -119,6 +120,7 @@ def glue_convert_examples_to_features(
 
         if output_mode == "classification":
             label = label_map[example.label]
+            #label = example.label
         elif output_mode == "regression":
             label = float(example.label)
         else:
@@ -130,8 +132,7 @@ def glue_convert_examples_to_features(
             logger.info("input_ids: %s" % " ".join([str(x) for x in input_ids]))
             logger.info("attention_mask: %s" % " ".join([str(x) for x in attention_mask]))
             logger.info("token_type_ids: %s" % " ".join([str(x) for x in token_type_ids]))
-            logger.info("label: %s (id = %d)" % (example.label, label))
-
+            logger.info(example.label)
         features.append(
             InputFeatures(
                 input_ids=input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids, label=label
@@ -527,12 +528,28 @@ class KuaiShouProcessor(DataProcessor):
             str(tensor_dict["label"].numpy()),
         )
 
+    def get_train_examples_(self, data_dir):
+        """See base class."""
+        lines = []
+        with open(os.path.join(data_dir, "train_with_soft_label.csv"), 'r') as reader:
+            for line in reader:
+                jsonline = json.loads(line)
+                lines.append([jsonline['input'], jsonline['soft_label']])
+        return self._create_examples(lines, "train")
+    
     def get_train_examples(self, data_dir):
-        """See base class."""
-        return self._create_examples(self._read_tsv(os.path.join(data_dir, "train_semi_0.8.csv")), "train")
+        return self._create_examples(self._read_tsv(os.path.join(data_dir, "train.csv")), "train")
 
-    def get_dev_examples(self, data_dir):
+    def get_dev_examples_(self, data_dir):
         """See base class."""
+        lines = []
+        with open(os.path.join(data_dir, "test_with_soft_label.csv"), 'r') as reader:
+            for line in reader:
+                jsonline = json.loads(line)
+                lines.append([jsonline['input'], jsonline['hard_label']])
+        return self._create_examples(lines, "dev")
+    
+    def get_dev_examples(self, data_dir):    
         return self._create_examples(self._read_tsv(os.path.join(data_dir, "test.csv")), "dev")
 
     def get_labels(self, label_path):

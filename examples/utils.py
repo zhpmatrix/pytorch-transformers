@@ -1,3 +1,5 @@
+import json
+import torch
 import numpy as np
 import pandas as pd
 from pprint import pprint
@@ -49,7 +51,7 @@ def topk_test(examples, raw_preds, real_labels, topk, tokenizer, args, processor
     #是否去掉"不是问题"和"无匹配"
     label_used = [i for i in range(len(label_list))]
     remove_labels = [0,1]
-    remove_labels = []
+    #remove_labels = []
     for label in remove_labels:
         label_used.remove(label)
     
@@ -66,13 +68,20 @@ def topk_test(examples, raw_preds, real_labels, topk, tokenizer, args, processor
     for key, value_list in answer_map.items():
         if key in label_used:
             answer_map_used[key] = value_list
+    
+    #知识蒸馏：软标签
+    writer = open('/nfs/users/zhanghaipeng/data/kuaishou/bucket/train_with_soft_label.csv','w')
+    pred_probs = torch.softmax(torch.tensor(raw_preds), axis=1).numpy()
     topk_preds = np.argsort(-1*raw_preds, axis=1)[:,:topk]
     
-    for example, topk_pred, real_label in zip(examples, topk_preds, real_labels):
+    for example, pred_prob, real_label in zip(examples, pred_probs, real_labels):
+    #for example, topk_pred, real_label in zip(examples, topk_preds, real_labels):
         tokens = tokenizer.convert_ids_to_tokens(example)
         valid_example_start = tokens.index('[CLS]')
         valid_example_end = tokens.index('[SEP]')
         input_example = ''.join(tokens[valid_example_start+1:valid_example_end])
+        writer.write(json.dumps({'input':input_example,'soft_label':pred_prob.tolist(),'hard_label':str(real_label)}, ensure_ascii=False)+'\n')
+        continue
         topk_questions = [label_map[index] for index in topk_pred]    
         
         #快手：关键词匹配

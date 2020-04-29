@@ -1182,15 +1182,22 @@ class BertForSequenceClassification(BertPreTrainedModel):
         logits = self.classifier(pooled_output)
 
         outputs = (logits,) + outputs[2:]  # add hidden states and attention if they are here
-
+        
+        def cross_entropy(pred, soft_targets):
+            logsoftmax = nn.LogSoftmax()
+            return torch.mean(torch.sum(- soft_targets * logsoftmax(pred), 1))
+        
         if labels is not None:
             if self.num_labels == 1:
                 #  We are doing regression
                 loss_fct = MSELoss()
                 loss = loss_fct(logits.view(-1), labels.view(-1))
             else:
-                loss_fct = CrossEntropyLoss()
-                loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
+                #import pdb;pdb.set_trace()
+                #loss_fct = CrossEntropyLoss()
+                #loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
+                #import pdb;pdb.set_trace()
+                loss = cross_entropy(logits, labels)
             outputs = (loss,) + outputs
 
         return outputs  # (loss), logits, (hidden_states), (attentions)

@@ -3,7 +3,7 @@ data_dir=/nfs/users/zhanghaipeng/data/kuaishou/bucket
 label_name=label.csv
 task_name=kuaishou
 expr=0
-cuda=1
+cuda=3
 ckpt=$1
 CUDA_VISIBLE_DEVICES=$cuda python run_glue.py \
 	--data_dir $data_dir \
