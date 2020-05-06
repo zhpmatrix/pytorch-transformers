@@ -357,18 +357,9 @@ def evaluate(args, model, tokenizer, processor, prefix=""):
             preds = np.argmax(raw_preds, axis=1)
         elif args.output_mode == "regression":
             preds = np.squeeze(preds)
-        
-        #测试TopK命名率
-        Kmax = 1
-    
-        #预测结果输出
-        #topk_test(input_examples, raw_preds, out_label_ids, Kmax, tokenizer, args, processor)
-        #exit()
-        
         #命中率评估
-        #for topk in range(Kmax):
-        #    topk_test(input_examples, raw_preds, out_label_ids, topk + 1, tokenizer, args, processor)
-        #exit()
+        topk_test(input_examples, raw_preds, out_label_ids, tokenizer, args, processor)
+        exit()
         result = compute_metrics(eval_task, preds, out_label_ids, model.num_labels)
         results.update(result)
         output_eval_file = os.path.join(eval_output_dir, "eval_results.txt")
@@ -401,7 +392,7 @@ def load_and_cache_examples(args, task, tokenizer, evaluate=False):
         features = torch.load(cached_features_file)
     else:
         logger.info("Creating features from dataset file at %s", args.data_dir)
-        label_list = processor.get_labels(args.label_path)
+        label_list = processor.get_labels()
         if task in ["mnli", "mnli-mm"] and args.model_type in ["roberta", "xlmroberta"]:
             # HACK(label indices are swapped in RoBERTa pretrained model)
             label_list[1], label_list[2] = label_list[2], label_list[1]
@@ -468,13 +459,6 @@ def main():
         type=str,
         required=True,
         help="The name of the task to train selected in the list: " + ", ".join(processors.keys()),
-    )
-    parser.add_argument(
-        "--label_path",
-        default=None,
-        type=str,
-        required=True,
-        help="The label path",
     )
     parser.add_argument(
         "--output_dir",
@@ -632,7 +616,7 @@ def main():
         raise ValueError("Task not found: %s" % (args.task_name))
     processor = processors[args.task_name]()
     args.output_mode = output_modes[args.task_name]
-    label_list = processor.get_labels(args.label_path)
+    label_list = processor.get_labels()
     num_labels = len(label_list)
 
     # Load pretrained model and tokenizer

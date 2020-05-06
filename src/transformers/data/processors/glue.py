@@ -581,8 +581,52 @@ class KuaiShouProcessor(DataProcessor):
         
         return examples
 
+class SimiKuaishouProcessor(DataProcessor):
+
+    def get_example_from_tensor_dict(self, tensor_dict):
+        """See base class."""
+        return InputExample(
+            tensor_dict["idx"].numpy(),
+            tensor_dict["sentence"].numpy().decode("utf-8"),
+            None,
+            str(tensor_dict["label"].numpy()),
+        )
+
+    def get_train_examples(self, data_dir):
+        return self._create_examples(self._read_tsv(os.path.join(data_dir, "train.csv")), "train")
+
+    def get_dev_examples(self, data_dir):    
+        return self._create_examples(self._read_tsv(os.path.join(data_dir, "dev.csv")), "dev")
+
+    def get_labels(self):
+        return ['0', '1']
+
+    def _create_examples(self, lines, set_type):
+        """Creates examples for the training and dev sets."""
+        eda = EDA()
+        aug_list = [eda.synonym_replacement, eda.random_deletion, eda.random_insertion, eda.random_swap]
+        aug_flag = False
+        examples = []
+        for (i, line) in enumerate(lines):
+            guid = "%s-%s" % (set_type, i)
+            text_a = line[0]
+            text_b = line[1]
+            label = line[2]
+            if aug_flag and set_type == 'train':
+                text_a_words = list(jieba.cut(text_a))
+                for aug_func in aug_list:
+                    aug_text_a_words = aug_func(text_a_words)
+                    aug_text_a = ''.join(aug_text_a_words)
+                    if aug_text_a != text_a:
+                        examples.append(InputExample(guid=guid, text_a=aug_text_a, text_b=text_b, label=label))
+            else:
+                examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
+        
+        return examples
+
 
 glue_tasks_num_labels = {
+    "simi_kuaishou": 2,
     "kuaishou": 85,
     "cola": 2,
     "mnli": 3,
@@ -596,6 +640,7 @@ glue_tasks_num_labels = {
 }
 
 glue_processors = {
+    "simi_kuaishou":SimiKuaishouProcessor,
     "kuaishou": KuaiShouProcessor,
     "cola": ColaProcessor,
     "mnli": MnliProcessor,
@@ -610,6 +655,7 @@ glue_processors = {
 }
 
 glue_output_modes = {
+    "simi_kuaishou": "classification",
     "kuaishou": "classification",
     "cola": "classification",
     "mnli": "classification",

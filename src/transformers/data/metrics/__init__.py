@@ -34,10 +34,6 @@ if _has_sklearn:
 
     def acc_and_f1(pred_labels, real_labels, metric_labels):
         metric_labels = [i for i in range(metric_labels)]
-        remove_labels = [0,1]
-        #remove_labels = []
-        for label in remove_labels:
-            metric_labels.remove(label)
         micro_f1 = f1_score(y_true=real_labels, y_pred=pred_labels, labels=metric_labels, average='micro')
         macro_f1 = f1_score(y_true=real_labels, y_pred=pred_labels, labels=metric_labels, average='macro')
         report = classification_report(real_labels, pred_labels, labels=metric_labels)
@@ -61,6 +57,8 @@ if _has_sklearn:
         if task_name == "cola":
             return {"mcc": matthews_corrcoef(labels, preds)}
         elif task_name == "kuaishou":
+            return acc_and_f1(preds, labels, metric_labels)
+        elif task_name == "simi_kuaishou":
             return acc_and_f1(preds, labels, metric_labels)
         elif task_name == "sst-2":
             return {"acc": simple_accuracy(preds, labels)}
